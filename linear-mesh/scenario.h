@@ -12,6 +12,464 @@
 using namespace std;
 using namespace ns3;
 
+string filename[3] = {"tx_pkts.csv", "rx_pkts.csv", "cw_values.csv"};
+ofstream outputFile[3];
+
+uint64_t g_rxPktNum = 0;
+vector<int> rxPkts(50, 0);
+
+// --- START PACKET RECEIVED FUNCIONS ---
+void packetReceived0(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[0]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "0," << rxPkts[0] << endl;
+}
+
+void packetReceived1(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[1]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "1," << rxPkts[1] << endl;
+}
+
+void packetReceived2(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[2]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "2," << rxPkts[2] << endl;
+}
+
+void packetReceived3(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[3]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "3," << rxPkts[3] << endl;
+}
+
+void packetReceived4(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[4]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "4," << rxPkts[4] << endl;
+}
+
+void packetReceived5(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[5]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "5," << rxPkts[5] << endl;
+}
+
+void packetReceived6(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[6]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "6," << rxPkts[6] << endl;
+}
+
+void packetReceived7(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[7]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "7," << rxPkts[7] << endl;
+}
+
+void packetReceived8(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[8]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "8," << rxPkts[8] << endl;
+}
+
+void packetReceived9(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[9]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "9," << rxPkts[9] << endl;
+}
+
+void packetReceived10(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[10]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "10," << rxPkts[10] << endl;
+}
+
+void packetReceived11(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[11]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "11," << rxPkts[11] << endl;
+}
+
+void packetReceived12(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[12]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "12," << rxPkts[12] << endl;
+}
+
+void packetReceived13(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[13]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "13," << rxPkts[13] << endl;
+}
+
+void packetReceived14(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[14]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "14," << rxPkts[14] << endl;
+}
+
+void packetReceived15(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[15]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "15," << rxPkts[15] << endl;
+}
+
+void packetReceived16(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[16]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "16," << rxPkts[16] << endl;
+}
+
+void packetReceived17(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[17]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "17," << rxPkts[17] << endl;
+}
+
+void packetReceived18(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[18]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "18," << rxPkts[18] << endl;
+}
+
+void packetReceived19(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[19]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "19," << rxPkts[19] << endl;
+}
+
+void packetReceived20(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[20]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "20," << rxPkts[20] << endl;
+}
+
+void packetReceived21(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[21]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "21," << rxPkts[21] << endl;
+}
+
+void packetReceived22(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[22]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "22," << rxPkts[22] << endl;
+}
+
+void packetReceived23(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[23]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "23," << rxPkts[23] << endl;
+}
+
+void packetReceived24(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[24]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "24," << rxPkts[24] << endl;
+}
+
+void packetReceived25(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[25]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "25," << rxPkts[25] << endl;
+}
+
+void packetReceived26(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[26]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "26," << rxPkts[26] << endl;
+}
+
+void packetReceived27(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[27]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "27," << rxPkts[27] << endl;
+}
+
+void packetReceived28(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[28]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "28," << rxPkts[28] << endl;
+}
+
+void packetReceived29(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[29]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "29," << rxPkts[29] << endl;
+}
+
+void packetReceived30(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[30]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "30," << rxPkts[30] << endl;
+}
+
+void packetReceived31(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[31]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "31," << rxPkts[31] << endl;
+}
+
+void packetReceived32(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[32]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "32," << rxPkts[32] << endl;
+}
+
+void packetReceived33(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[33]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "33," << rxPkts[33] << endl;
+}
+
+void packetReceived34(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[34]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "34," << rxPkts[34] << endl;
+}
+
+void packetReceived35(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[35]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "35," << rxPkts[35] << endl;
+}
+
+void packetReceived36(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[36]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "36," << rxPkts[36] << endl;
+}
+
+void packetReceived37(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[37]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "37," << rxPkts[37] << endl;
+}
+
+void packetReceived38(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[38]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "38," << rxPkts[38] << endl;
+}
+
+void packetReceived39(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[39]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "39," << rxPkts[39] << endl;
+}
+
+void packetReceived40(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[40]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "40," << rxPkts[40] << endl;
+}
+
+void packetReceived41(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[41]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "41," << rxPkts[41] << endl;
+}
+
+void packetReceived42(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[42]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "42," << rxPkts[42] << endl;
+}
+
+void packetReceived43(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[43]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "43," << rxPkts[43] << endl;
+}
+
+void packetReceived44(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[44]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "44," << rxPkts[44] << endl;
+}
+
+void packetReceived45(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[45]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "45," << rxPkts[45] << endl;
+}
+
+void packetReceived46(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[46]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "46," << rxPkts[46] << endl;
+}
+
+void packetReceived47(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[47]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "47," << rxPkts[47] << endl;
+}
+
+void packetReceived48(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[48]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "48," << rxPkts[48] << endl;
+}
+
+void packetReceived49(Ptr<const Packet> packet)
+{
+    g_rxPktNum++;
+    rxPkts[49]++;
+
+    if (outputFile[1].is_open())
+        outputFile[1] << "49," << rxPkts[49] << endl;
+}
+// --- END PACKET RECEIVED FUNCIONS ---
+
 class Scenario
 {
   protected:
@@ -29,12 +487,11 @@ class Scenario
                                  int port,
                                  std::string offeredLoad,
                                  double startTime,
-                                 double endTime,
-                                 ns3::Callback<void, Ptr<const Packet>> callback);
+                                 double endTime);
 
   public:
     Scenario(int nWifim, NodeContainer wifiStaNode, NodeContainer wifiApNode, int port, std::string offeredLoad, int history_length);
-    virtual void installScenario(double simulationTime, double envStepTime, ns3::Callback<void, Ptr<const Packet>> callback) = 0;
+    virtual void installScenario(double simulationTime, double envStepTime) = 0;
     void PopulateARPcache();
     int getActiveStationCount(double time);
     float getStationUptime(int id, double time);
@@ -45,7 +502,7 @@ class BasicScenario : public Scenario
     using Scenario::Scenario;
 
   public:
-    void installScenario(double simulationTime, double envStepTime, ns3::Callback<void, Ptr<const Packet>> callback) override;
+    void installScenario(double simulationTime, double envStepTime) override;
 };
 
 class ConvergenceScenario : public Scenario
@@ -53,7 +510,7 @@ class ConvergenceScenario : public Scenario
     using Scenario::Scenario;
 
   public:
-    void installScenario(double simulationTime, double envStepTime, ns3::Callback<void, Ptr<const Packet>> callback) override;
+    void installScenario(double simulationTime, double envStepTime) override;
 };
 
 class ScenarioFactory
@@ -126,8 +583,7 @@ float Scenario::getStationUptime(int id, double time)
     // return res;
 }
 
-void Scenario::installTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, int port, string offeredLoad, double startTime, double endTime,
-                                       ns3::Callback<void, Ptr<const Packet>> callback)
+void Scenario::installTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, int port, string offeredLoad, double startTime, double endTime)
 {
     start_times.push_back(startTime);
     end_times.push_back(endTime);
@@ -163,7 +619,159 @@ void Scenario::installTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> t
     sinkApplications.Stop(Seconds(endTime));
 
     Ptr<UdpServer> udpServer = DynamicCast<UdpServer>(sinkApplications.Get(0));
-    udpServer->TraceConnectWithoutContext("Rx", callback);
+
+    switch(fromNode->GetId()) {
+        case 0:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived0));
+            break;
+        case 1:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived1));
+            break;
+        case 2:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived2));
+            break;
+        case 3:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived3));
+            break;
+        case 4:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived4));
+            break;
+        case 5:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived5));
+            break;
+        case 6:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived6));
+            break;
+        case 7:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived7));
+            break;
+        case 8:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived8));
+            break;
+        case 9:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived9));
+            break;
+        case 10:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived10));
+            break;
+        case 11:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived11));
+            break;
+        case 12:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived12));
+            break;
+        case 13:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived13));
+            break;
+        case 14:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived14));
+            break;
+        case 15:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived15));
+            break;
+        case 16:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived16));
+            break;
+        case 17:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived17));
+            break;
+        case 18:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived18));
+            break;
+        case 19:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived19));
+            break;
+        case 20:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived20));
+            break;
+        case 21:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived21));
+            break;
+        case 22:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived22));
+            break;
+        case 23:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived23));
+            break;
+        case 24:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived24));
+            break;
+        case 25:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived25));
+            break;
+        case 26:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived26));
+            break;
+        case 27:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived27));
+            break;
+        case 28:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived28));
+            break;
+        case 29:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived29));
+            break;
+        case 30:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived30));
+            break;
+        case 31:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived31));
+            break;
+        case 32:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived32));
+            break;
+        case 33:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived33));
+            break;
+        case 34:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived34));
+            break;
+        case 35:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived35));
+            break;
+        case 36:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived36));
+            break;
+        case 37:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived37));
+            break;
+        case 38:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived38));
+            break;
+        case 39:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived39));
+            break;
+        case 40:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived40));
+            break;
+        case 41:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived41));
+            break;
+        case 42:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived42));
+            break;
+        case 43:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived43));
+            break;
+        case 44:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived44));
+            break;
+        case 45:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived45));
+            break;
+        case 46:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived46));
+            break;
+        case 47:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived47));
+            break;
+        case 48:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived48));
+            break;
+        case 49:
+            udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&packetReceived49));
+            break;
+    }
 
     sourceApplications.Start(Seconds(startTime));
     sourceApplications.Stop(Seconds(endTime));
@@ -220,15 +828,15 @@ void Scenario::PopulateARPcache()
     }
 }
 
-void BasicScenario::installScenario(double simulationTime, double envStepTime, ns3::Callback<void, Ptr<const Packet>> callback)
+void BasicScenario::installScenario(double simulationTime, double envStepTime)
 {
     for (int i = 0; i < this->nWifim; ++i)
     {
-        installTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, this->offeredLoad, 0.0, simulationTime + 2 + envStepTime*history_length, callback);
+        installTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, this->offeredLoad, 0.0, simulationTime + 2 + envStepTime*history_length);
     }
 }
 
-void ConvergenceScenario::installScenario(double simulationTime, double envStepTime, ns3::Callback<void, Ptr<const Packet>> callback)
+void ConvergenceScenario::installScenario(double simulationTime, double envStepTime)
 {
     float delta = simulationTime/(this->nWifim-4);
     float delay = history_length*envStepTime;
@@ -236,11 +844,11 @@ void ConvergenceScenario::installScenario(double simulationTime, double envStepT
     {
         for (int i = 0; i < 5; ++i)
         {
-            installTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, this->offeredLoad, 0.0 , simulationTime + 2 + delay, callback);
+            installTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, this->offeredLoad, 0.0 , simulationTime + 2 + delay);
         }
         for (int i = 5; i < this->nWifim; ++i)
         {
-            installTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, this->offeredLoad, delay+(i - 4) * delta, simulationTime + 2 + delay, callback);
+            installTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, this->offeredLoad, delay+(i - 4) * delta, simulationTime + 2 + delay);
         }
     }
     else

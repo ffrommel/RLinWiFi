@@ -41,12 +41,16 @@ Ptr<FlowMonitor> monitor;
 FlowMonitorHelper flowmon;
 
 uint32_t CW = 0;
+uint32_t CW_opt = 194; // Optimal CW for dry_run
 uint32_t history_length = 20;
 string type = "discrete";
 bool non_zero_start = false;
 Scenario *wifiScenario;
 
 deque<float> history;
+
+//string filename[3] = {"tx_pkts.csv", "rx_pkts.csv", "cw_values.csv"};
+//ofstream outputFile[3];
 
 /*
 Define observation space
@@ -87,8 +91,8 @@ Ptr<OpenGymSpace> MyGetActionSpace(void)
 /*
 Define extra info. Optional
 */
-uint64_t g_rxPktNum = 0;
 uint64_t g_txPktNum = 0;
+vector<int> txPkts(50, 0);
 
 double jain_index(void)
 {
@@ -174,7 +178,13 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
     if(!dry_run){
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW));
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW));
+    } else {
+        CW = CW_opt;
     }
+
+    if (outputFile[2].is_open())
+        outputFile[2] << CW << "," << actionVector.at(0) << endl;
+
     return true;
 }
 
@@ -280,16 +290,457 @@ void recordHistory()
     }
 }
 
-void packetReceived(Ptr<const Packet> packet)
-{
-    NS_LOG_DEBUG("Client received a packet of " << packet->GetSize() << " bytes");
-    g_rxPktNum++;
-}
-
-void packetSent(Ptr<const Packet> packet)
+// --- START PACKET SENT FUNCIONS ---
+void packetSent0(Ptr<const Packet> packet)
 {
     g_txPktNum++;
+    txPkts[0]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "0," << txPkts[0] << endl;
 }
+
+void packetSent1(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[1]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "1," << txPkts[1] << endl;
+}
+
+void packetSent2(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[2]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "2," << txPkts[2] << endl;
+}
+
+void packetSent3(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[3]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "3," << txPkts[3] << endl;
+}
+
+void packetSent4(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[4]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "4," << txPkts[4] << endl;
+}
+
+void packetSent5(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[5]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "5," << txPkts[5] << endl;
+}
+
+void packetSent6(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[6]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "6," << txPkts[6] << endl;
+}
+
+void packetSent7(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[7]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "7," << txPkts[7] << endl;
+}
+
+void packetSent8(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[8]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "8," << txPkts[8] << endl;
+}
+
+void packetSent9(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[9]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "9," << txPkts[9] << endl;
+}
+
+void packetSent10(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[10]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "10," << txPkts[10] << endl;
+}
+
+void packetSent11(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[11]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "11," << txPkts[11] << endl;
+}
+
+void packetSent12(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[12]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "12," << txPkts[12] << endl;
+}
+
+void packetSent13(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[13]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "13," << txPkts[13] << endl;
+}
+
+void packetSent14(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[14]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "14," << txPkts[14] << endl;
+}
+
+void packetSent15(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[15]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "15," << txPkts[15] << endl;
+}
+
+void packetSent16(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[16]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "16," << txPkts[16] << endl;
+}
+
+void packetSent17(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[17]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "17," << txPkts[17] << endl;
+}
+
+void packetSent18(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[18]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "18," << txPkts[18] << endl;
+}
+
+void packetSent19(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[19]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "19," << txPkts[19] << endl;
+}
+
+void packetSent20(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[20]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "20," << txPkts[20] << endl;
+}
+
+void packetSent21(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[21]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "21," << txPkts[21] << endl;
+}
+
+void packetSent22(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[22]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "22," << txPkts[22] << endl;
+}
+
+void packetSent23(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[23]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "23," << txPkts[23] << endl;
+}
+
+void packetSent24(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[24]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "24," << txPkts[24] << endl;
+}
+
+void packetSent25(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[25]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "25," << txPkts[25] << endl;
+}
+
+void packetSent26(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[26]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "26," << txPkts[26] << endl;
+}
+
+void packetSent27(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[27]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "27," << txPkts[27] << endl;
+}
+
+void packetSent28(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[28]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "28," << txPkts[28] << endl;
+}
+
+void packetSent29(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[29]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "29," << txPkts[29] << endl;
+}
+
+void packetSent30(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[30]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "30," << txPkts[30] << endl;
+}
+
+void packetSent31(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[31]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "31," << txPkts[31] << endl;
+}
+
+void packetSent32(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[32]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "32," << txPkts[32] << endl;
+}
+
+void packetSent33(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[33]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "33," << txPkts[33] << endl;
+}
+
+void packetSent34(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[34]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "34," << txPkts[34] << endl;
+}
+
+void packetSent35(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[35]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "35," << txPkts[35] << endl;
+}
+
+void packetSent36(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[36]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "36," << txPkts[36] << endl;
+}
+
+void packetSent37(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[37]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "37," << txPkts[37] << endl;
+}
+
+void packetSent38(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[38]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "38," << txPkts[38] << endl;
+}
+
+void packetSent39(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[39]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "39," << txPkts[39] << endl;
+}
+
+void packetSent40(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[40]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "40," << txPkts[40] << endl;
+}
+
+void packetSent41(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[41]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "41," << txPkts[41] << endl;
+}
+
+void packetSent42(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[42]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "42," << txPkts[42] << endl;
+}
+
+void packetSent43(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[43]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "43," << txPkts[43] << endl;
+}
+
+void packetSent44(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[44]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "44," << txPkts[44] << endl;
+}
+
+void packetSent45(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[45]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "45," << txPkts[45] << endl;
+}
+
+void packetSent46(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[46]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "46," << txPkts[46] << endl;
+}
+
+void packetSent47(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[47]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "47," << txPkts[47] << endl;
+}
+
+void packetSent48(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[48]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "48," << txPkts[48] << endl;
+}
+
+void packetSent49(Ptr<const Packet> packet)
+{
+    g_txPktNum++;
+    txPkts[49]++;
+
+    if (outputFile[0].is_open())
+        outputFile[0] << "49," << txPkts[49] << endl;
+}
+// --- END PACKET SENT FUNCTIONS ---
 
 void set_phy(int nWifi, int guardInterval, NodeContainer &wifiStaNode, NodeContainer &wifiApNode, YansWifiPhyHelper &phy)
 {
@@ -370,8 +821,8 @@ void set_nodes(int channelWidth, int rng, int32_t simSeed, NodeContainer wifiSta
     else
     {
         NS_LOG_UNCOND("Default CW");
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(16));
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(1024));
+        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW_opt));
+        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW_opt));
     }
 }
 
@@ -437,6 +888,17 @@ int main(int argc, char *argv[])
 
     uint32_t openGymPort = 5555;
     int32_t simSeed = -1;
+
+    // Open and insert headers in log files
+    outputFile[0].open(filename[0].c_str(), std::ios_base::app); // TX
+    outputFile[1].open(filename[1].c_str(), std::ios_base::app); // RX
+    outputFile[2].open(filename[2].c_str(), std::ios_base::app); // CW values
+    if (outputFile[0].is_open())
+        outputFile[0] << "STA_id,tx_pkts" << endl;
+    if (outputFile[1].is_open())
+        outputFile[1] << "STA_id,rx_pkts" << endl;
+    if (outputFile[2].is_open())
+        outputFile[2] << "CW,action" << endl;
 
     signal(SIGTERM, signalHandler);
 
@@ -524,10 +986,59 @@ int main(int argc, char *argv[])
         end_delay = 0.0;
     // }
 
-    wifiScenario->installScenario(simulationTime + end_delay + envStepTime, envStepTime, MakeCallback(&packetReceived));
+    wifiScenario->installScenario(simulationTime + end_delay + envStepTime, envStepTime);
 
-    // Config::ConnectWithoutContext("/NodeList/0/ApplicationList/*/$ns3::OnOffApplication/Tx", MakeCallback(&packetSent));
-    Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent));
+    Config::ConnectWithoutContext("/NodeList/0/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent0));
+    Config::ConnectWithoutContext("/NodeList/1/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent1));
+    Config::ConnectWithoutContext("/NodeList/2/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent2));
+    Config::ConnectWithoutContext("/NodeList/3/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent3));
+    Config::ConnectWithoutContext("/NodeList/4/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent4));
+    Config::ConnectWithoutContext("/NodeList/5/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent5));
+    Config::ConnectWithoutContext("/NodeList/6/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent6));
+    Config::ConnectWithoutContext("/NodeList/7/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent7));
+    Config::ConnectWithoutContext("/NodeList/8/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent8));
+    Config::ConnectWithoutContext("/NodeList/9/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent9));
+    Config::ConnectWithoutContext("/NodeList/10/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent10));
+    Config::ConnectWithoutContext("/NodeList/11/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent11));
+    Config::ConnectWithoutContext("/NodeList/12/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent12));
+    Config::ConnectWithoutContext("/NodeList/13/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent13));
+    Config::ConnectWithoutContext("/NodeList/14/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent14));
+    Config::ConnectWithoutContext("/NodeList/15/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent15));
+    Config::ConnectWithoutContext("/NodeList/16/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent16));
+    Config::ConnectWithoutContext("/NodeList/17/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent17));
+    Config::ConnectWithoutContext("/NodeList/18/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent18));
+    Config::ConnectWithoutContext("/NodeList/19/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent19));
+    Config::ConnectWithoutContext("/NodeList/20/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent20));
+    Config::ConnectWithoutContext("/NodeList/21/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent21));
+    Config::ConnectWithoutContext("/NodeList/22/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent22));
+    Config::ConnectWithoutContext("/NodeList/23/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent23));
+    Config::ConnectWithoutContext("/NodeList/24/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent24));
+
+    Config::ConnectWithoutContext("/NodeList/25/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent25));
+    Config::ConnectWithoutContext("/NodeList/26/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent26));
+    Config::ConnectWithoutContext("/NodeList/27/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent27));
+    Config::ConnectWithoutContext("/NodeList/28/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent28));
+    Config::ConnectWithoutContext("/NodeList/29/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent29));
+    Config::ConnectWithoutContext("/NodeList/30/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent30));
+    Config::ConnectWithoutContext("/NodeList/31/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent31));
+    Config::ConnectWithoutContext("/NodeList/32/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent32));
+    Config::ConnectWithoutContext("/NodeList/33/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent33));
+    Config::ConnectWithoutContext("/NodeList/34/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent34));
+    Config::ConnectWithoutContext("/NodeList/35/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent35));
+    Config::ConnectWithoutContext("/NodeList/36/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent36));
+    Config::ConnectWithoutContext("/NodeList/37/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent37));
+    Config::ConnectWithoutContext("/NodeList/38/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent38));
+    Config::ConnectWithoutContext("/NodeList/39/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent39));
+    Config::ConnectWithoutContext("/NodeList/40/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent40));
+    Config::ConnectWithoutContext("/NodeList/41/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent41));
+    Config::ConnectWithoutContext("/NodeList/42/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent42));
+    Config::ConnectWithoutContext("/NodeList/43/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent43));
+    Config::ConnectWithoutContext("/NodeList/44/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent44));
+    Config::ConnectWithoutContext("/NodeList/45/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent45));
+    Config::ConnectWithoutContext("/NodeList/46/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent46));
+    Config::ConnectWithoutContext("/NodeList/47/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent47));
+    Config::ConnectWithoutContext("/NodeList/48/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent48));
+    Config::ConnectWithoutContext("/NodeList/49/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent49));
 
     wifiScenario->PopulateARPcache();
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
