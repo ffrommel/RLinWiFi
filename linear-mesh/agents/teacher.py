@@ -123,8 +123,9 @@ class Teacher:
                 if(any(done)):
                     break
 
-    def eval(self, agent, simTime, stepTime, history_length, tags=None, parameters=None, experiment=None):
-        agent.load()
+    def eval(self, loadAgent, agent, simTime, stepTime, history_length, tags=None, parameters=None, experiment=None):
+        if loadAgent:
+            agent.load()
         steps_per_ep = int(simTime/stepTime + history_length)
 
         logger = Logger(True, tags, parameters, experiment=experiment)
@@ -152,7 +153,7 @@ class Teacher:
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
                 self.debug = obs
-                # self.actions = agent.act(np.array(logger.stations, dtype=np.float32), add_noise)
+                #self.actions = agent.act(np.array(logger.stations, dtype=np.float32), add_noise)
                 self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                 next_obs, reward, done, info = self.env.step(self.actions)
 
