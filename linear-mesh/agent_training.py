@@ -13,13 +13,16 @@ from agents.teacher import Teacher, EnvWrapper
 from preprocessor import Preprocessor
 
 #%%
-scenario = "convergence"
+scenario = "basic"
+runTrain = False
+runEval = False
+runDry = True
 
 simTime = 60 # seconds
 stepTime = 0.01  # seconds
 history_length = 300
 
-EPISODE_COUNT = 3
+EPISODE_COUNT = 15
 steps_per_ep = int(simTime/stepTime)
 
 sim_args = {
@@ -27,8 +30,9 @@ sim_args = {
     "envStepTime": stepTime,
     "historyLength": history_length,
     "agentType": Agent.TYPE,
-    "scenario": "convergence",
-    "nWifi": 6,
+    "scenario": scenario,
+    "nWifi": 30,
+    "dryRun": runDry
 }
 
 print("Steps per episode:", steps_per_ep)
@@ -65,8 +69,9 @@ tags = ["Rew: normalized speed",
         f"Instances: {threads_no}",
         f"Station count: {sim_args['nWifi']}",
         *[f"{key}: {sim_args[key]}" for key in list(sim_args)[:3]]]
-# agent.save()
-logger = teacher.train(agent, EPISODE_COUNT,
+
+if runTrain:
+    logger = teacher.train(agent, EPISODE_COUNT,
                         simTime=simTime,
                         stepTime=stepTime,
                         history_length=history_length,
@@ -74,10 +79,22 @@ logger = teacher.train(agent, EPISODE_COUNT,
                         experimental=True,
                         tags=tags,
                         parameters=hyperparams)
-# logger = teacher.eval(agent,
-#                         simTime=simTime,
-#                         stepTime=stepTime,
-#                         history_length=history_length,
-#                         tags=tags,
-#                         parameters=hyperparams)
-# agent.save()
+    agent.save()
+
+if runEval:
+    logger = teacher.eval(True,
+                        agent,
+                        simTime=simTime,
+                        stepTime=stepTime,
+                        history_length=history_length,
+                        tags=tags,
+                        parameters=hyperparams)
+
+if runDry:
+    logger = teacher.eval(False,
+                        agent,
+                        simTime=simTime,
+                        stepTime=stepTime,
+                        history_length=history_length,
+                        tags=tags,
+                        parameters=hyperparams)
