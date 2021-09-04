@@ -13,10 +13,10 @@ from agents.teacher import Teacher, EnvWrapper
 from preprocessor import Preprocessor
 
 #%%
-scenario = "basic"
+scenario = "convergence"
 runTrain = False
-runEval = False
-runDry = True
+runEval = True
+runDry = False
 
 simTime = 60 # seconds
 stepTime = 0.01  # seconds
@@ -31,8 +31,8 @@ sim_args = {
     "historyLength": history_length,
     "agentType": Agent.TYPE,
     "scenario": scenario,
-    "nWifi": 30,
-    "dryRun": runDry
+    "nWifi": 50,
+    "dryRun": runDry # For ns-3 simulation
 }
 
 print("Steps per episode:", steps_per_ep)
@@ -68,7 +68,7 @@ tags = ["Rew: normalized speed",
         f"Critic: {lr_critic}",
         f"Instances: {threads_no}",
         f"Station count: {sim_args['nWifi']}",
-        *[f"{key}: {sim_args[key]}" for key in list(sim_args)[:3]]]
+        *[f"{key}: {sim_args[key]}" for key in list(sim_args)]]
 
 if runTrain:
     logger = teacher.train(agent, EPISODE_COUNT,
