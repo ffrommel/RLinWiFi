@@ -46,7 +46,7 @@ class Actor(nn.Module):
         if seed!=-1:
             self.seed = torch.manual_seed(seed)
         self.norm = torch.nn.BatchNorm1d(np.ceil(state_size/(state_size//4)).astype(int))
-        self.lstm1 = nn.LSTM(2, fc_units)
+        self.lstm1 = nn.LSTM(3, fc_units)
         self.norm1 = torch.nn.BatchNorm1d(fc_units)
         self.fc2 = nn.Linear(fc_units, fc2_units)
         self.norm2 = torch.nn.BatchNorm1d(fc2_units)
@@ -104,7 +104,7 @@ class Critic(nn.Module):
 
         self.seed = torch.manual_seed(seed)
 
-        self.lstm1 = nn.LSTM(2, fcs1_units)
+        self.lstm1 = nn.LSTM(3, fcs1_units)
         self.norm1 = torch.nn.BatchNorm1d(fcs1_units)
         self.fc2 = nn.Linear(fcs1_units+action_size, fc2_units)
         self.fc3 = nn.Linear(fc2_units, fc3_units)
