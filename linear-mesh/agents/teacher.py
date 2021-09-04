@@ -9,8 +9,15 @@ import matplotlib.pyplot as plt
 from collections import deque
 import time
 import json
-import os 
+import os
 import glob
+
+import math
+from scipy.optimize import fsolve
+import csv
+
+import sys
+from datetime import datetime, timedelta
 
 
 class Logger:
@@ -45,6 +52,7 @@ class Logger:
             self.experiment.log_parameter("sigma", sigma)
 
     def log_round(self, states, reward, cumulative_reward, info, loss, observations, step):
+
         self.experiment.log_histogram_3d(states, name="Observations", step=step)
         info = [[j for j in i.split("|")] for i in info]
         info = np.mean(np.array(info, dtype=np.float32), axis=0)
@@ -93,6 +101,16 @@ class Logger:
         if self.send_logs:
             self.experiment.end()
 
+def solve_eqs(z, *params):
+        tau = z[0]
+        p = z[1]
+        W_min, m, n = params
+
+        F = np.empty((2))
+        F[0] = tau - 2 * (1 - 2 * p) / ((1 - 2 * p) * (W_min + 1) + p * W_min * (1 - pow(2 * p, m)))
+        F[1] = p - 1 + pow(1 - tau, n - 1)
+        return F
+
 class Teacher:
     """Class that handles training of RL model in ns-3 simulator
 
@@ -109,9 +127,46 @@ class Teacher:
         self.CW = 16
         self.action = None              # For debug purposes
 
+    def calculate_step(self, w, n):
+        phy_h = 48                                                  # PHY header size (b) 
+        mac_h = 272                                                 # MAC header size (b)
+        E = 988 * 8                                                 # payload size (b)
+        A = 112                                                     # ACK size (b)
+        phy_rate = 6e6                                              # PHY header and preamble rate (bps)
+        data_rate = 143.4e6                                         # data rate (bps) -- MCS 11 - 20 MHz channel - 1 SS (https://en.wikipedia.org/wiki/Wi-Fi_6)
+        ack_rate = 6e6                                              # ACK rate (bps)
+        aSlotTime = 9e-6                                            # slot time (s) -- ("Performance Evaluation of OFDMA and MU-MIMO in 802.11ax Networks")
+        aSIFSTime = 16e-6                                           # SIFS (s) -- ("Performance Evaluation of OFDMA and MU-MIMO in 802.11ax Networks")
+        aDIFSTime = aSIFSTime + 2 * aSlotTime                       # DIFS (s) -- (https://en.wikipedia.org/wiki/DCF_Interframe_Space)
+        d = 7e-9                                                    # propagation delay (s)
+        t_send = (phy_h + mac_h) / phy_rate + E / data_rate         # time it takes to send a complete packet
+        t_ack = (phy_h + A) / ack_rate                              # time it takes to transmit an acknowledgement
+        aEIFSTime = t_ack + aSIFSTime + aDIFSTime                   # EIFS (s) -- (https://en.wikipedia.org/wiki/Extended_interframe_space)
+        T_s = t_send + aSIFSTime + d + t_ack + aDIFSTime + d        # duration of a time-slot containing a successful transmission
+        T_c = t_send + aEIFSTime + d                                # duration of a time-slot containing a collision
+
+        # Calculate 'tau' and 'p'
+        W_min = w                                                   # minimum contention window
+        W_max = w                                                   # maximum contention window
+        m = math.log2(W_max / W_min)                                # maximum number of backoff stages
+        z_guess = np.array([0.99, 0.99])
+        params = (W_min, m, n)
+        z = fsolve(solve_eqs, z_guess, args=params)
+        tau = z[0]
+        p = z[1]
+
+        # Calculate throughput
+        S_max = 40e6                                                # throughput upper bound for reward
+        P_tr = 1 - pow(1 - tau, n)
+        P_s = n * tau * pow(1 - tau, n - 1) / P_tr
+
+        S = P_s * P_tr * E / ((1 - P_tr) * aSlotTime + P_tr * P_s * T_s + P_tr * (1 - P_s) * T_c)
+
+        return p, S, S/S_max
+
     def dry_run(self, agent, steps_per_ep):
         obs = self.env.reset()
-        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), 1)))
+        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), 1)), 25) # 25 stas
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
@@ -138,37 +193,74 @@ class Teacher:
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
 
-        try:
-            self.env.run()
-        except AlreadyRunningException as e:
-            pass
-
         cumulative_reward = 0
-        reward = 0
+        reward = [0]
         sent_mb = 0
+        nWifi = parameters['nWifi']
+        cw = 15
+        done = [False]
 
-        obs = self.env.reset()
-        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+        obs = [[0] * history_length]
+        next_obs = [[0] * history_length]
+        obs_preproc = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)), nWifi)
+
+        is_convergence = parameters['scenario'] == 'convergence'
+        steps_limit = steps_per_ep / (nWifi - 4)
+        steps_counter = 0
+
+        if is_convergence:
+            if  nWifi > 5:
+                nWifi = 5
+            else:
+                sys.exit("Not enough Wi-Fi stations to support the convergence scenario.")
+
+        f = open('output_eval.csv', 'a')
+        writer = csv.writer(f)
+        writer.writerow(['cw', 'action', 'pcol', 'thr', 'reward'])
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
                 self.debug = obs
-                #self.actions = agent.act(np.array(logger.stations, dtype=np.float32), add_noise)
-                self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
-                next_obs, reward, done, info = self.env.step(self.actions)
 
-                next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                self.actions = agent.act(np.array(obs_preproc, dtype=np.float32), add_noise)
+
+                # update CW
+                cw = int(pow(2, self.actions[0][0] + 4))
+
+                min_cw = 16
+                max_cw = 1024
+                cw = min(max_cw, max(cw, min_cw));
+
+                if is_convergence:
+                    if steps_counter >= steps_limit:
+                        nWifi = nWifi + 1 if nWifi < parameters['nWifi'] else parameters['nWifi']
+                        steps_counter = 0
+
+                pcol, thr, reward[0] = self.calculate_step(cw, nWifi)
+                next_obs[0].pop(-1) # remove last element
+                next_obs[0].insert(0,pcol) # add last pcol at the beginning
+                next_obs_preproc = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)), nWifi)
+                #print("\n", next_obs)
+                #print("\n", next_obs_preproc)
+
+                # create info string (Mbytes_sent | CW | STAs | Jain Index)
+                info = ["NaN|" + str(cw) + "|" + str(nWifi) + "|NaN"]
 
                 cumulative_reward += np.mean(reward)
 
                 if step>(history_length/obs_dim):
-                    logger.log_round(obs, reward, cumulative_reward, info, agent.get_loss(), np.mean(obs, axis=0)[0], step)
+                    logger.log_round(obs_preproc, reward, cumulative_reward, info, agent.get_loss(), np.mean(obs_preproc, axis=0)[0], step)
                 t.set_postfix(mb_sent=f"{logger.sent_mb:.2f} Mb", curr_speed=f"{logger.current_speed:.2f} Mbps")
 
-                obs = next_obs
+                obs_preproc = next_obs_preproc
+
+                # write output file
+                writer.writerow([cw, self.actions[0][0], pcol, thr, reward[0]])
 
                 if(any(done)):
                     break
+
+                steps_counter += 1
 
         self.env.close()
         self.env = EnvWrapper(self.env.no_threads, **self.env.params)
@@ -197,52 +289,88 @@ class Teacher:
 
         for i in range(EPISODE_COUNT):
             print(i)
-            try:
-                self.env.run()
-            except AlreadyRunningException as e:
-                pass
 
             if i>=EPISODE_COUNT*4/5:
                 add_noise = False
                 print("Turning off noise")
 
             cumulative_reward = 0
-            reward = 0
+            reward = [0]
             sent_mb = 0
+            nWifi = parameters['nWifi']
+            cw = 15
+            done = [False]
 
-            obs = self.env.reset()
-            obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+            obs = [[0] * history_length]
+            next_obs = [[0] * history_length]
+            obs_preproc = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)), nWifi)
+
+            is_convergence = parameters['scenario'] == 'convergence'
+            steps_limit = steps_per_ep / (nWifi - 4)
+            steps_counter = 0
 
             self.last_actions = None
+
+            if is_convergence:
+                if  nWifi > 5:
+                    nWifi = 5
+                else:
+                    sys.exit("Not enough Wi-Fi stations to support the convergence scenario.")
+
+            f = open('output_train.csv', 'a')
+            writer = csv.writer(f)
+            writer.writerow(['cw', 'action', 'pcol', 'thr', 'reward'])
 
             with tqdm.trange(steps_per_ep) as t:
                 for step in t:
                     self.debug = obs
 
-                    self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
-                    next_obs, reward, done, info = self.env.step(self.actions)
-                    # reward = 1-np.reshape(np.mean(next_obs), reward.shape)
-                    next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                    self.actions = agent.act(np.array(obs_preproc, dtype=np.float32), add_noise)
+
+                    # update CW
+                    cw = int(pow(2, self.actions[0][0] + 4))
+
+                    min_cw = 16
+                    max_cw = 1024
+                    cw = min(max_cw, max(cw, min_cw));
+
+                    if is_convergence:
+                        if steps_counter >= steps_limit:
+                            nWifi = nWifi + 1 if nWifi < parameters['nWifi'] else parameters['nWifi']
+                            steps_counter = 0
+
+                    pcol, thr, reward[0] = self.calculate_step(cw, nWifi)
+                    next_obs[0].pop(-1) # remove last element
+                    next_obs[0].insert(0,pcol) # add last pcol at the beginning
+                    next_obs_preproc = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)), nWifi)
+                    #print("\n", next_obs)
+                    #print("\n", next_obs_preproc)
+
+                    # create info string (Mbytes_sent | CW | STAs | Jain Index)
+                    info = ["NaN|" + str(cw) + "|" + str(nWifi) + "|NaN"]
 
                     if self.last_actions is not None and step>(history_length/obs_dim) and i<EPISODE_COUNT-1:
-                        agent.step(obs, self.actions, reward, next_obs, done, 2)
+                        agent.step(obs_preproc, self.actions, reward, next_obs_preproc, done, 2)
 
                     cumulative_reward += np.mean(reward)
 
                     self.last_actions = self.actions
 
                     if step>(history_length/obs_dim):
-                        logger.log_round(obs, reward, cumulative_reward, info, agent.get_loss(), np.mean(obs, axis=0)[0], i*steps_per_ep+step)
+                        logger.log_round(obs_preproc, reward, cumulative_reward, info, agent.get_loss(), np.mean(obs_preproc, axis=0)[0], i*steps_per_ep+step)
                     t.set_postfix(mb_sent=f"{logger.sent_mb:.2f} Mb", curr_speed=f"{logger.current_speed:.2f} Mbps")
 
-                    obs = next_obs
+                    obs_preproc = next_obs_preproc
+
+                    # write output file
+                    writer.writerow([cw, self.actions[0][0], pcol, thr, reward[0]])
 
                     if(any(done)):
                         break
 
+                    steps_counter += 1
+
             self.env.close()
-            if experimental:
-                self.env = EnvWrapper(self.env.no_threads, **self.env.params)
 
             agent.reset()
             print(f"Sent {logger.sent_mb:.2f} Mb/s.\tMean speed: {logger.sent_mb/(simTime):.2f} Mb/s\tEpisode {i+1}/{EPISODE_COUNT} finished\n")
