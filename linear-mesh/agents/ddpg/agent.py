@@ -222,12 +222,12 @@ class Agent:
         self.notifications = 0
 
     def save(self):
-        torch.save(self.actor_local.state_dict(), "models/ddpg_actor.torch")
-        torch.save(self.critic_local.state_dict(), "models/ddpg_critic.torch")
+        torch.save(self.actor_local.state_dict(), "models/ddpg_actor_convergence_25stas_15eps_state_modif.torch")
+        torch.save(self.critic_local.state_dict(), "models/ddpg_critic_convergence_25stas_15eps_state_modif.torch")
 
     def load(self):
-        self.actor_local.load_state_dict(torch.load("models/ddpg_actor_15_convergence.torch"))
-        self.critic_local.load_state_dict(torch.load("models/ddpg_critic_15_convergence.torch"))
+        self.actor_local.load_state_dict(torch.load("models/ddpg_actor_convergence_25stas_15eps_state_modif_win10.torch"))
+        self.critic_local.load_state_dict(torch.load("models/ddpg_critic_convergence_25stas_15eps_state_modif_win10.torch"))
 
 class NormalNoise:
     def __init__(self, size, seed, mu=0., sigma=0.2, theta=0.6):
