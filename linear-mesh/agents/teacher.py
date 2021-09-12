@@ -123,7 +123,7 @@ class Teacher:
                 if(any(done)):
                     break
 
-    def eval(self, loadAgent, agent, simTime, stepTime, history_length, tags=None, parameters=None, experiment=None):
+    def eval(self, loadAgent, agent, simTime, stepTime, history_length, stas_length, tags=None, parameters=None, experiment=None):
         if loadAgent:
             agent.load()
         steps_per_ep = int(simTime/stepTime + history_length)
@@ -148,7 +148,9 @@ class Teacher:
         sent_mb = 0
 
         obs = self.env.reset()
-        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+        p_col = obs[0][:-stas_length]
+        eff_stas = obs[0][history_length:][0]
+        obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
@@ -156,8 +158,10 @@ class Teacher:
                 #self.actions = agent.act(np.array(logger.stations, dtype=np.float32), add_noise)
                 self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                 next_obs, reward, done, info = self.env.step(self.actions)
+                p_col = next_obs[0][:-stas_length]
+                eff_stas = next_obs[0][history_length:][0]
 
-                next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
                 cumulative_reward += np.mean(reward)
 
@@ -181,7 +185,7 @@ class Teacher:
         return logger
 
 
-    def train(self, agent, EPISODE_COUNT, simTime, stepTime, history_length, send_logs=True, experimental=True, tags=None, parameters=None, experiment=None):
+    def train(self, agent, EPISODE_COUNT, simTime, stepTime, history_length, stas_length, send_logs=True, experimental=True, tags=None, parameters=None, experiment=None):
         steps_per_ep = int(simTime/stepTime + history_length)
 
         logger = Logger(send_logs, tags, parameters, experiment=experiment)
@@ -211,7 +215,9 @@ class Teacher:
             sent_mb = 0
 
             obs = self.env.reset()
-            obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+            p_col = obs[0][:-stas_length]
+            eff_stas = obs[0][history_length:][0]
+            obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
             self.last_actions = None
 
@@ -221,8 +227,10 @@ class Teacher:
 
                     self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                     next_obs, reward, done, info = self.env.step(self.actions)
+                    p_col = next_obs[0][:-stas_length]
+                    eff_stas = next_obs[0][history_length:][0]
                     # reward = 1-np.reshape(np.mean(next_obs), reward.shape)
-                    next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                    next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
                     if self.last_actions is not None and step>(history_length/obs_dim) and i<EPISODE_COUNT-1:
                         agent.step(obs, self.actions, reward, next_obs, done, 2)
