@@ -41,13 +41,17 @@ Ptr<FlowMonitor> monitor;
 FlowMonitorHelper flowmon;
 
 uint32_t CW = 0;
-uint32_t CW_opt = 194; // Optimal CW for dry_run
+uint32_t CW_opt = 161; // Optimal CW for dry_run
 uint32_t history_length = 20;
+uint32_t stas_length = 1;
+uint32_t stas_window = 10;
+int stas_threshold = 5; // pkts
 string type = "discrete";
 bool non_zero_start = false;
 Scenario *wifiScenario;
 
 deque<float> history;
+deque<uint32_t> eff_stas;
 
 //string filename[3] = {"tx_pkts.csv", "rx_pkts.csv", "cw_values.csv"};
 //ofstream outputFile[3];
@@ -216,14 +220,16 @@ float MyGetReward(void)
 Collect observations
 */
 Ptr<OpenGymDataContainer> MyGetObservation()
+
 {
     recordHistory();
 
     std::vector<uint32_t> shape = {
-        history_length,
+        history_length + stas_length,
     };
     Ptr<OpenGymBoxContainer<float>> box = CreateObject<OpenGymBoxContainer<float>>(shape);
 
+    // Copy p_col values
     for (uint32_t i = 0; i < history.size(); i++)
     {
         if (history[i] >= -100 && history[i] <= 100)
@@ -231,12 +237,22 @@ Ptr<OpenGymDataContainer> MyGetObservation()
         else
             box->AddValue(0);
     }
+    // Fill with 0s until history_length
     for (uint32_t i = history.size(); i < history_length; i++)
+    {
+        box->AddValue(0);
+    }
+    // Copy effective stas numbers
+    for (uint32_t i = 0; i < eff_stas.size(); i++)
+        box->AddValue(eff_stas[i]);
+    // Fill with 0s until stas_length
+    for (uint32_t i = eff_stas.size(); i < stas_length; i++)
     {
         box->AddValue(0);
     }
     if (verbose)
         NS_LOG_UNCOND("MyGetObservation: " << box);
+
     return box;
 }
 
@@ -260,6 +276,8 @@ void recordHistory()
     static uint32_t last_rx = 0;
     static uint32_t last_tx = 0;
     static uint32_t calls = 0;
+    static uint32_t stas_win = stas_window;
+
     calls++;
 
     float received = g_rxPktNum - last_rx;
@@ -267,6 +285,9 @@ void recordHistory()
     float errs = sent - received;
     float ratio;
 
+    uint32_t stas_counter = 0;
+
+    // p_col values
     ratio = errs / sent;
     history.push_front(ratio);
 
@@ -276,6 +297,42 @@ void recordHistory()
     }
     last_rx = g_rxPktNum;
     last_tx = g_txPktNum;
+
+    // effective stas numbers
+    /*
+    for (uint32_t i = 0; i < effective_stas.size(); i++)
+    {
+        if (effective_stas[i])
+        {
+            stas_counter++;
+            effective_stas[i] = false; // reset
+        }
+    }
+    eff_stas.push_front(stas_counter);
+
+    if (eff_stas.size() > stas_length)
+    {
+        eff_stas.pop_back();
+    }
+    */
+    stas_win--;
+    if (stas_win == 0)
+    {
+        for (uint32_t i = 0; i < effective_stas.size(); i++)
+        {
+            if (effective_stas[i] >= stas_threshold)
+            {
+                stas_counter++;
+                effective_stas[i] = 0; // reset
+            }
+        }
+        eff_stas.push_front(stas_counter);
+        if (eff_stas.size() > stas_length)
+        {
+            eff_stas.pop_back();
+        }
+        stas_win = stas_window;
+    }
 
     if (calls < history_length && non_zero_start)
     {
@@ -905,7 +962,10 @@ int main(int argc, char *argv[])
     CommandLine cmd;
     cmd.AddValue("openGymPort", "Specify port number. Default: 5555", openGymPort);
     cmd.AddValue("CW", "Value of Contention Window", CW);
-    cmd.AddValue("historyLength", "Length of history window", history_length);
+    cmd.AddValue("historyLength", "Length of p_col queue", history_length);
+    cmd.AddValue("stasLength", "Length of eff_stas queue", stas_length);
+    cmd.AddValue("stasWindow", "Length of eff_stas window", stas_window);
+    cmd.AddValue("stasThreshold", "Threshold to consider stas as active", stas_threshold);
     cmd.AddValue("nWifi", "Number of wifi 802.11ax STA devices", nWifi);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
     cmd.AddValue("tracing", "Enable pcap tracing", tracing);
@@ -998,8 +1058,8 @@ int main(int argc, char *argv[])
     Config::ConnectWithoutContext("/NodeList/7/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent7));
     Config::ConnectWithoutContext("/NodeList/8/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent8));
     Config::ConnectWithoutContext("/NodeList/9/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent9));
-    Config::ConnectWithoutContext("/NodeList/10/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent10));
-    Config::ConnectWithoutContext("/NodeList/11/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent11));
+    //Config::ConnectWithoutContext("/NodeList/10/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent10));
+    //Config::ConnectWithoutContext("/NodeList/11/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent11));
     Config::ConnectWithoutContext("/NodeList/12/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent12));
     Config::ConnectWithoutContext("/NodeList/13/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent13));
     Config::ConnectWithoutContext("/NodeList/14/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent14));
@@ -1014,8 +1074,8 @@ int main(int argc, char *argv[])
     Config::ConnectWithoutContext("/NodeList/23/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent23));
     Config::ConnectWithoutContext("/NodeList/24/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent24));
 
-    Config::ConnectWithoutContext("/NodeList/25/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent25));
-    Config::ConnectWithoutContext("/NodeList/26/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent26));
+    //Config::ConnectWithoutContext("/NodeList/25/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent25));
+    //Config::ConnectWithoutContext("/NodeList/26/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent26));
     Config::ConnectWithoutContext("/NodeList/27/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent27));
     Config::ConnectWithoutContext("/NodeList/28/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent28));
     Config::ConnectWithoutContext("/NodeList/29/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent29));

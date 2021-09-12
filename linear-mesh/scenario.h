@@ -17,12 +17,14 @@ ofstream outputFile[3];
 
 uint64_t g_rxPktNum = 0;
 vector<int> rxPkts(50, 0);
+vector<int> effective_stas(50, 0);
 
 // --- START PACKET RECEIVED FUNCIONS ---
 void packetReceived0(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[0]++;
+    effective_stas[0]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "0," << rxPkts[0] << endl;
@@ -32,6 +34,7 @@ void packetReceived1(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[1]++;
+    effective_stas[1]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "1," << rxPkts[1] << endl;
@@ -41,6 +44,7 @@ void packetReceived2(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[2]++;
+    effective_stas[2]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "2," << rxPkts[2] << endl;
@@ -50,6 +54,7 @@ void packetReceived3(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[3]++;
+    effective_stas[3]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "3," << rxPkts[3] << endl;
@@ -59,6 +64,7 @@ void packetReceived4(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[4]++;
+    effective_stas[4]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "4," << rxPkts[4] << endl;
@@ -68,6 +74,7 @@ void packetReceived5(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[5]++;
+    effective_stas[5]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "5," << rxPkts[5] << endl;
@@ -77,6 +84,7 @@ void packetReceived6(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[6]++;
+    effective_stas[6]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "6," << rxPkts[6] << endl;
@@ -86,6 +94,7 @@ void packetReceived7(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[7]++;
+    effective_stas[7]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "7," << rxPkts[7] << endl;
@@ -95,6 +104,7 @@ void packetReceived8(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[8]++;
+    effective_stas[8]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "8," << rxPkts[8] << endl;
@@ -104,6 +114,7 @@ void packetReceived9(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[9]++;
+    effective_stas[9]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "9," << rxPkts[9] << endl;
@@ -113,6 +124,7 @@ void packetReceived10(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[10]++;
+    effective_stas[10]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "10," << rxPkts[10] << endl;
@@ -122,6 +134,7 @@ void packetReceived11(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[11]++;
+    effective_stas[11]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "11," << rxPkts[11] << endl;
@@ -131,6 +144,7 @@ void packetReceived12(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[12]++;
+    effective_stas[12]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "12," << rxPkts[12] << endl;
@@ -140,6 +154,7 @@ void packetReceived13(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[13]++;
+    effective_stas[13]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "13," << rxPkts[13] << endl;
@@ -149,6 +164,7 @@ void packetReceived14(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[14]++;
+    effective_stas[14]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "14," << rxPkts[14] << endl;
@@ -158,6 +174,7 @@ void packetReceived15(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[15]++;
+    effective_stas[15]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "15," << rxPkts[15] << endl;
@@ -167,6 +184,7 @@ void packetReceived16(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[16]++;
+    effective_stas[16]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "16," << rxPkts[16] << endl;
@@ -176,6 +194,7 @@ void packetReceived17(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[17]++;
+    effective_stas[17]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "17," << rxPkts[17] << endl;
@@ -185,6 +204,7 @@ void packetReceived18(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[18]++;
+    effective_stas[18]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "18," << rxPkts[18] << endl;
@@ -194,6 +214,7 @@ void packetReceived19(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[19]++;
+    effective_stas[19]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "19," << rxPkts[19] << endl;
@@ -203,6 +224,7 @@ void packetReceived20(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[20]++;
+    effective_stas[20]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "20," << rxPkts[20] << endl;
@@ -212,6 +234,7 @@ void packetReceived21(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[21]++;
+    effective_stas[21]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "21," << rxPkts[21] << endl;
@@ -221,6 +244,7 @@ void packetReceived22(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[22]++;
+    effective_stas[22]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "22," << rxPkts[22] << endl;
@@ -230,6 +254,7 @@ void packetReceived23(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[23]++;
+    effective_stas[23]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "23," << rxPkts[23] << endl;
@@ -239,6 +264,7 @@ void packetReceived24(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[24]++;
+    effective_stas[24]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "24," << rxPkts[24] << endl;
@@ -248,6 +274,7 @@ void packetReceived25(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[25]++;
+    effective_stas[25]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "25," << rxPkts[25] << endl;
@@ -257,6 +284,7 @@ void packetReceived26(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[26]++;
+    effective_stas[26]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "26," << rxPkts[26] << endl;
@@ -266,6 +294,7 @@ void packetReceived27(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[27]++;
+    effective_stas[27]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "27," << rxPkts[27] << endl;
@@ -275,6 +304,7 @@ void packetReceived28(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[28]++;
+    effective_stas[28]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "28," << rxPkts[28] << endl;
@@ -284,6 +314,7 @@ void packetReceived29(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[29]++;
+    effective_stas[29]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "29," << rxPkts[29] << endl;
@@ -293,6 +324,7 @@ void packetReceived30(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[30]++;
+    effective_stas[30]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "30," << rxPkts[30] << endl;
@@ -302,6 +334,7 @@ void packetReceived31(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[31]++;
+    effective_stas[31]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "31," << rxPkts[31] << endl;
@@ -311,6 +344,7 @@ void packetReceived32(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[32]++;
+    effective_stas[32]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "32," << rxPkts[32] << endl;
@@ -320,6 +354,7 @@ void packetReceived33(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[33]++;
+    effective_stas[33]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "33," << rxPkts[33] << endl;
@@ -329,6 +364,7 @@ void packetReceived34(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[34]++;
+    effective_stas[34]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "34," << rxPkts[34] << endl;
@@ -338,6 +374,7 @@ void packetReceived35(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[35]++;
+    effective_stas[35]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "35," << rxPkts[35] << endl;
@@ -347,6 +384,7 @@ void packetReceived36(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[36]++;
+    effective_stas[36]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "36," << rxPkts[36] << endl;
@@ -356,6 +394,7 @@ void packetReceived37(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[37]++;
+    effective_stas[37]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "37," << rxPkts[37] << endl;
@@ -365,6 +404,7 @@ void packetReceived38(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[38]++;
+    effective_stas[38]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "38," << rxPkts[38] << endl;
@@ -374,6 +414,7 @@ void packetReceived39(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[39]++;
+    effective_stas[39]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "39," << rxPkts[39] << endl;
@@ -383,6 +424,7 @@ void packetReceived40(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[40]++;
+    effective_stas[40]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "40," << rxPkts[40] << endl;
@@ -392,6 +434,7 @@ void packetReceived41(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[41]++;
+    effective_stas[41]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "41," << rxPkts[41] << endl;
@@ -401,6 +444,7 @@ void packetReceived42(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[42]++;
+    effective_stas[42]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "42," << rxPkts[42] << endl;
@@ -410,6 +454,7 @@ void packetReceived43(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[43]++;
+    effective_stas[43]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "43," << rxPkts[43] << endl;
@@ -419,6 +464,7 @@ void packetReceived44(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[44]++;
+    effective_stas[44]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "44," << rxPkts[44] << endl;
@@ -428,6 +474,7 @@ void packetReceived45(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[45]++;
+    effective_stas[45]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "45," << rxPkts[45] << endl;
@@ -437,6 +484,7 @@ void packetReceived46(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[46]++;
+    effective_stas[46]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "46," << rxPkts[46] << endl;
@@ -446,6 +494,7 @@ void packetReceived47(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[47]++;
+    effective_stas[47]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "47," << rxPkts[47] << endl;
@@ -455,6 +504,7 @@ void packetReceived48(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[48]++;
+    effective_stas[48]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "48," << rxPkts[48] << endl;
@@ -464,6 +514,7 @@ void packetReceived49(Ptr<const Packet> packet)
 {
     g_rxPktNum++;
     rxPkts[49]++;
+    effective_stas[49]++;
 
     if (outputFile[1].is_open())
         outputFile[1] << "49," << rxPkts[49] << endl;

@@ -13,14 +13,17 @@ from agents.teacher import Teacher, EnvWrapper
 from preprocessor import Preprocessor
 
 #%%
-scenario = "basic"
+scenario = "convergence"
 runTrain = False
-runEval = False
-runDry = True
+runEval = True
+runDry = False
 
 simTime = 60 # seconds
 stepTime = 0.01  # seconds
 history_length = 300
+stas_length = 1
+stas_window = 100
+stas_threshold = 50
 
 EPISODE_COUNT = 15
 steps_per_ep = int(simTime/stepTime)
@@ -29,9 +32,12 @@ sim_args = {
     "simTime": simTime,
     "envStepTime": stepTime,
     "historyLength": history_length,
+    "stasLength": stas_length,
+    "stasWindow": stas_window,
+    "stasThreshold": stas_threshold,
     "agentType": Agent.TYPE,
     "scenario": scenario,
-    "nWifi": 30,
+    "nWifi": 10,
     "dryRun": runDry
 }
 
@@ -75,6 +81,7 @@ if runTrain:
                         simTime=simTime,
                         stepTime=stepTime,
                         history_length=history_length,
+                        stas_length=stas_length,
                         send_logs=True,
                         experimental=True,
                         tags=tags,
@@ -87,6 +94,7 @@ if runEval:
                         simTime=simTime,
                         stepTime=stepTime,
                         history_length=history_length,
+                        stas_length=stas_length,
                         tags=tags,
                         parameters=hyperparams)
 
@@ -96,5 +104,6 @@ if runDry:
                         simTime=simTime,
                         stepTime=stepTime,
                         history_length=history_length,
+                        stas_length=stas_length,
                         tags=tags,
                         parameters=hyperparams)
