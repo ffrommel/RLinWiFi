@@ -9,9 +9,11 @@ import matplotlib.pyplot as plt
 from collections import deque
 import time
 import json
-import os 
+import os
 import glob
 
+# Run simulation in debug mode
+debug_mode = False
 
 class Logger:
     def __init__(self, send_logs, tags, parameters, experiment=None):
@@ -49,7 +51,6 @@ class Logger:
         info = [[j for j in i.split("|")] for i in info]
         info = np.mean(np.array(info, dtype=np.float32), axis=0)
         try:
-            # round_mb = np.mean([float(i.split("|")[0]) for i in info])
             round_mb = info[0]
         except Exception as e:
             print(info)
@@ -58,9 +59,7 @@ class Logger:
         self.speed_window.append(round_mb)
         self.current_speed = np.mean(np.asarray(self.speed_window)/self.step_time)
         self.sent_mb += round_mb
-        # CW = np.mean([float(i.split("|")[1]) for i in info])
         CW = info[1]
-        # stations = np.mean([float(i.split("|")[2]) for i in info])
         self.stations = info[2]
         fairness = info[3]
 
@@ -107,7 +106,7 @@ class Teacher:
         self.env = env
         self.num_agents = num_agents
         self.CW = 16
-        self.action = None              # For debug purposes
+        self.action = None # For debug purposes
 
     def dry_run(self, agent, steps_per_ep):
         obs = self.env.reset()
@@ -133,7 +132,9 @@ class Teacher:
             logger.begin_logging(1, steps_per_ep, agent.noise.sigma, agent.noise.theta, stepTime)
         except  AttributeError:
             logger.begin_logging(1, steps_per_ep, None, None, stepTime)
+
         add_noise = False
+        new_state = parameters['newState']
 
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
@@ -146,18 +147,29 @@ class Teacher:
         cumulative_reward = 0
         reward = 0
         sent_mb = 0
+        stas_length = 1
 
         obs = self.env.reset()
-        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+        if (new_state):
+            p_col = obs[0][:-stas_length]
+            eff_stas = obs[0][history_length:][0]
+        else:
+            p_col = obs
+            eff_stas = -1
+        obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
                 self.debug = obs
-                #self.actions = agent.act(np.array(logger.stations, dtype=np.float32), add_noise)
                 self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                 next_obs, reward, done, info = self.env.step(self.actions)
-
-                next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                if (new_state):
+                    p_col = next_obs[0][:-stas_length]
+                    eff_stas = next_obs[0][history_length:][0]
+                else:
+                    p_col = next_obs
+                    eff_stas = -1
+                next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
                 cumulative_reward += np.mean(reward)
 
@@ -180,8 +192,7 @@ class Teacher:
         logger.end()
         return logger
 
-
-    def train(self, agent, EPISODE_COUNT, simTime, stepTime, history_length, send_logs=True, experimental=True, tags=None, parameters=None, experiment=None):
+    def train(self, agent, EPISODE_COUNT, simTime, stepTime, history_length, mixedTrain, send_logs=True, experimental=True, tags=None, parameters=None, experiment=None):
         steps_per_ep = int(simTime/stepTime + history_length)
 
         logger = Logger(send_logs, tags, parameters, experiment=experiment)
@@ -191,6 +202,7 @@ class Teacher:
             logger.begin_logging(EPISODE_COUNT, steps_per_ep, None, None, stepTime)
 
         add_noise = True
+        new_state = parameters['newState']
 
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
@@ -209,9 +221,16 @@ class Teacher:
             cumulative_reward = 0
             reward = 0
             sent_mb = 0
+            stas_length = 1
 
             obs = self.env.reset()
-            obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+            if (new_state):
+                p_col = obs[0][:-stas_length]
+                eff_stas = obs[0][history_length:][0]
+            else:
+                p_col = obs
+                eff_stas = -1
+            obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
             self.last_actions = None
 
@@ -221,8 +240,13 @@ class Teacher:
 
                     self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                     next_obs, reward, done, info = self.env.step(self.actions)
-                    # reward = 1-np.reshape(np.mean(next_obs), reward.shape)
-                    next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                    if (new_state):
+                        p_col = next_obs[0][:-stas_length]
+                        eff_stas = next_obs[0][history_length:][0]
+                    else:
+                        p_col = next_obs
+                        eff_stas = -1
+                    next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
 
                     if self.last_actions is not None and step>(history_length/obs_dim) and i<EPISODE_COUNT-1:
                         agent.step(obs, self.actions, reward, next_obs, done, 2)
@@ -242,7 +266,32 @@ class Teacher:
 
             self.env.close()
             if experimental:
-                self.env = EnvWrapper(self.env.no_threads, **self.env.params)
+                # Define dictionary with original values
+                new_params = {
+                    "newState": parameters['newState'],
+                    "udp": parameters['udp'],
+                    "direction": parameters['direction'],
+                    "nWifi": parameters['nWifi'],
+                    "scenario": parameters['scenario'],
+                    "dryRun": parameters['dryRun'],
+                    "cw_dryRun": parameters['cw_dryRun'],
+                    "tracing": parameters['tracing'],
+                    "simTime": parameters['simTime'],
+                    "envStepTime": parameters['envStepTime'],
+                    "historyLength": parameters['historyLength'],
+                    "stasWindow": parameters['stasWindow'],
+                    "stasThreshold": parameters['stasThreshold'],
+                    "agentType": parameters['agentType'],
+                }
+                if mixedTrain:
+                    if (i + 1 % 2) == 0: # Episode number even
+                        # Keep all elements values unchanged
+                        pass
+                    else: # Episode number odd
+                        # Modify some elements values
+                        new_params['udp'] = not new_params['udp']
+                        new_params['direction'] = 1 if new_params['direction'] == 0 else 0
+                self.env = EnvWrapper(self.env.no_threads, **new_params)
 
             agent.reset()
             print(f"Sent {logger.sent_mb:.2f} Mb/s.\tMean speed: {logger.sent_mb/(simTime):.2f} Mb/s\tEpisode {i+1}/{EPISODE_COUNT} finished\n")
@@ -284,7 +333,10 @@ class EnvWrapper:
 
     def _craft_commands(self, params):
         waf_pwd = find_waf_path("./")
-        command = f'{waf_pwd} --run "linear-mesh'
+        if debug_mode:
+            command = f'{waf_pwd} --run linear-mesh --command-template="gdb --args %s'
+        else:
+            command = f'{waf_pwd} --run "linear-mesh'
         for key, val in params.items():
             command+=f" --{key}={val}"
 
@@ -327,7 +379,6 @@ class EnvWrapper:
         time.sleep(5)
         for env in self.envs:
             env.close()
-        # subprocess.Popen(['bash', '-c', "killall linear-mesh"])
 
         self.SCRIPT_RUNNING = False
 
