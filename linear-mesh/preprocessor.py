@@ -11,16 +11,25 @@ class Preprocessor:
     def normalize(self, sig):
         return np.clip((sig-np.min(sig))/(np.max(sig)-np.min(sig)+1e-6), 0, 1)
 
-    def preprocess(self, signal):
+    def preprocess(self, signal, stas):
         window = 150
         res = []
 
         for i in range(0, len(signal), window//2):
-            res.append([
-                [np.mean(signal[i:i+window, batch]),
-                np.std(signal[i:i+window, batch])] for batch in range(0, signal.shape[1])])
+            if stas == -1: # use p_col as state
+                res.append([
+                    [np.mean(signal[i:i+window, batch]),
+                    np.std(signal[i:i+window, batch])] for batch in range(0, signal.shape[1])])
+            else: # use p_col and stas as state
+                res.append([
+                    [np.mean(signal[i:i+window, batch]),
+                    np.std(signal[i:i+window, batch]),
+                    stas] for batch in range(0, signal.shape[1])])
         res = np.array(res)
-        res = np.clip(res, 0, 1)
+        if stas == -1:
+            res = np.clip(res, 0, 1)
+        else:
+            res = np.clip(res, 0, stas)
 
         if self.plot:
             plot_len = len(signal[:, 0, 0])
