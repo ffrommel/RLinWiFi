@@ -5,7 +5,6 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/opengym-module.h"
-//#include "ns3/csma-module.h"
 #include "ns3/propagation-module.h"
 #include "ns3/flow-monitor-helper.h"
 #include "ns3/ipv4-flow-classifier.h"
@@ -14,8 +13,8 @@
 #include <fstream>
 #include <string>
 #include <math.h>
-#include <ctime>   //timestampi
-#include <iomanip> // put_time
+#include <ctime>
+#include <iomanip>
 #include <deque>
 #include <algorithm>
 #include <csignal>
@@ -30,31 +29,72 @@ void installTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, int
 void PopulateARPcache();
 void recordHistory();
 
-double envStepTime = 0.1;
-double simulationTime = 10; //seconds
-double current_time = 0.0;
+bool new_state = false;         // true: state = p_col + n, false: state = p_col
+bool dry_run = false;
+uint32_t CW = 0;
+uint32_t CW_dryRun = 161;       // CW value for dry_run
+double simulationTime = 10;     // seconds
+double envStepTime = 0.1;       // seconds
+double current_time = 0.0;      // seconds
+uint32_t history_length = 20;
+uint32_t stas_length = 1;
+uint32_t stas_window = 10;
+int stas_threshold = 5;         // pkts
+string type = "discrete";
 bool verbose = false;
 int end_delay = 0;
-bool dry_run = false;
+bool non_zero_start = false;
+bool far_sta = false;
+double len = 9.8;               // meters
+double wid = 7.4;               // meters
 
 Ptr<FlowMonitor> monitor;
 FlowMonitorHelper flowmon;
-
-uint32_t CW = 0;
-uint32_t CW_opt = 194; // Optimal CW for dry_run
-uint32_t history_length = 20;
-string type = "discrete";
-bool non_zero_start = false;
 Scenario *wifiScenario;
-
 deque<float> history;
+deque<uint32_t> eff_stas;
+int payloadSize = 0;
 
-//string filename[3] = {"tx_pkts.csv", "rx_pkts.csv", "cw_values.csv"};
-//ofstream outputFile[3];
+int rxError = 0;
+int rxOk = 0;
 
-/*
-Define observation space
-*/
+Ptr<ListPositionAllocator> getCoordinates (uint16_t numStas, bool far) {
+    double side = sqrt (len * wid / numStas); // Side of the square of each STA
+    uint16_t stasInLen = round (len / side); // Number of STAs in length
+    uint16_t stasInWid = round (wid / side); // Number of STAs in width
+    if (stasInLen * stasInWid < numStas)
+        stasInWid ++;
+    double sepInLen = len / stasInLen;
+    double sepInWid = wid / stasInWid;
+    double i = sepInLen / 2;
+    double j = sepInWid / 2;
+    uint16_t counter = 1;
+    uint16_t factor = 9;
+    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
+    positionAlloc->Add (Vector (len / 2, wid / 2, 2)); // AP coordinates
+    while (i < len) {
+        while (j < wid) {
+            if (counter <= numStas)
+                if (far && counter == numStas) // 'far' is enabled and last STA
+                {
+                    positionAlloc->Add (Vector (i + factor * sepInLen, j, 0)); // far STA coordinate
+                    NS_LOG_UNCOND("(" << i + factor * sepInLen << ", " << j  << ")");
+                }
+                else
+                {
+                    positionAlloc->Add (Vector (i, j, 0)); // STA k coordinates
+                    NS_LOG_UNCOND("(" << i << ", " <<j << ")");
+                }
+            j += sepInWid;
+            counter++;
+        }
+        i += sepInLen;
+        j = sepInWid / 2;
+    }
+    return positionAlloc;
+}
+
+// Define observation space
 Ptr<OpenGymSpace> MyGetObservationSpace(void)
 {
     current_time += envStepTime;
@@ -71,9 +111,7 @@ Ptr<OpenGymSpace> MyGetObservationSpace(void)
     return space;
 }
 
-/*
-Define action space
-*/
+// Define action space
 Ptr<OpenGymSpace> MyGetActionSpace(void)
 {
     float low = 0.0;
@@ -88,13 +126,8 @@ Ptr<OpenGymSpace> MyGetActionSpace(void)
     return space;
 }
 
-/*
-Define extra info. Optional
-*/
-uint64_t g_txPktNum = 0;
-vector<int> txPkts(50, 0);
-
-double jain_index(void)
+// Define extra info.
+double jain_index(Address apAddr)
 {
     double flowThr;
     Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
@@ -106,34 +139,48 @@ double jain_index(void)
     double station_id = 0;
     for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i)
     {
-        flowThr = i->second.rxBytes;
-        flowThr /= wifiScenario->getStationUptime(station_id, current_time);
-        if(flowThr>0){
-            nominator += flowThr;
-            denominator += flowThr*flowThr;
-            n++;
+        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+        Address srcAddr = t.sourceAddress;
+        // Do not process TCP ACK flows
+        bool cond;
+        if (direction == 0) // UL
+            cond = srcAddr != apAddr;
+        else if (direction == 1) // DL
+            cond = srcAddr == apAddr;
+        else // UL+DL
+            // Calculate only for UL transmissions
+            cond = srcAddr != apAddr;
+        if (cond)
+        {
+            flowThr = i->second.rxBytes;
+            flowThr /= wifiScenario->getStationUptime(station_id, current_time);
+            if(flowThr>0){
+                nominator += flowThr;
+                denominator += flowThr*flowThr;
+                n++;
+            }
+            station_id++;
         }
-        station_id++;
     }
     nominator *= nominator;
     denominator *= n;
     return nominator/denominator;
 }
 
-std::string MyGetExtraInfo(void)
+std::string MyGetExtraInfo(Address addr)
 {
     static float ticks = 0.0;
-    static float lastValue = 0.0;
-    float obs = g_rxPktNum - lastValue;
-    lastValue = g_rxPktNum;
+    static float lastValueData = 0.0;
+    float thr = g_rxDataPktNum - lastValueData; // Received data packets for throughput
+    lastValueData = g_rxDataPktNum;
     ticks += envStepTime;
 
-    float sentMbytes = obs * (1500 - 20 - 8 - 8) * 8.0 / 1024 / 1024;
+    float sentMbytes = thr * payloadSize * 8.0 / 1024 / 1024;
 
     std::string myInfo = std::to_string(sentMbytes);
     myInfo = myInfo + "|" + to_string(CW) + "|";
     myInfo = myInfo + to_string(wifiScenario->getActiveStationCount(ticks)) + "|";
-    myInfo = myInfo + to_string(jain_index());
+    myInfo = myInfo + to_string(jain_index(addr));
 
     if (verbose)
         NS_LOG_UNCOND("MyGetExtraInfo: " << myInfo);
@@ -141,9 +188,7 @@ std::string MyGetExtraInfo(void)
     return myInfo;
 }
 
-/*
-Execute received actions
-*/
+// Execute received actions
 bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
 {
     if (verbose)
@@ -170,8 +215,8 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
         exit(0);
     }
 
-    uint32_t min_cw = 16;
-    uint32_t max_cw = 1024;
+    uint32_t min_cw = 15;
+    uint32_t max_cw = 1023;
 
     CW = min(max_cw, max(CW, min_cw));
 
@@ -179,7 +224,7 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW));
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW));
     } else {
-        CW = CW_opt;
+        CW = CW_dryRun;
     }
 
     if (outputFile[2].is_open())
@@ -195,10 +240,10 @@ float MyGetReward(void)
     static float last_reward = 0.0;
     ticks += envStepTime;
 
-    float res = g_rxPktNum - last_packets;
-    float reward = res * (1500 - 20 - 8 - 8) * 8.0 / 1024 / 1024 / (5 * 150 * envStepTime) * 10;
+    float res = g_rxDataPktNum - last_packets;
+    float reward = res * payloadSize * 8.0 / 1024 / 1024 / (5 * 150 * envStepTime) * 10;
 
-    last_packets = g_rxPktNum;
+    last_packets = g_rxDataPktNum;
 
     if (ticks <= 2 * envStepTime)
         return 0.0;
@@ -212,9 +257,7 @@ float MyGetReward(void)
     return last_reward;
 }
 
-/*
-Collect observations
-*/
+// Collect observations
 Ptr<OpenGymDataContainer> MyGetObservation()
 {
     recordHistory();
@@ -224,16 +267,26 @@ Ptr<OpenGymDataContainer> MyGetObservation()
     };
     Ptr<OpenGymBoxContainer<float>> box = CreateObject<OpenGymBoxContainer<float>>(shape);
 
+    // Copy p_col values
     for (uint32_t i = 0; i < history.size(); i++)
     {
+        //NS_LOG_UNCOND("obs: " << history[i]);
         if (history[i] >= -100 && history[i] <= 100)
             box->AddValue(history[i]);
         else
             box->AddValue(0);
     }
+    // Fill with 0s until history_length
     for (uint32_t i = history.size(); i < history_length; i++)
-    {
         box->AddValue(0);
+    if (new_state)
+    {
+        // Copy effective stas numbers
+        for (uint32_t i = 0; i < eff_stas.size(); i++)
+            box->AddValue(eff_stas[i]);
+        // Fill with 0s until stas_length
+        for (uint32_t i = eff_stas.size(); i < stas_length; i++)
+            box->AddValue(0);
     }
     if (verbose)
         NS_LOG_UNCOND("MyGetObservation: " << box);
@@ -242,40 +295,64 @@ Ptr<OpenGymDataContainer> MyGetObservation()
 
 bool MyGetGameOver(void)
 {
-    // bool isGameOver = (ns3::Simulator::Now().GetSeconds() > simulationTime + end_delay + 1.0);
     return false;
 }
 
 void ScheduleNextStateRead(double envStepTime, Ptr<OpenGymInterface> openGymInterface)
 {
-    // if(ns3::Simulator::Now().GetSeconds()<simulationTime + end_delay + 1.0)
-    // {
     Simulator::Schedule(Seconds(envStepTime), &ScheduleNextStateRead, envStepTime, openGymInterface);
-    // }
     openGymInterface->NotifyCurrentState();
 }
 
 void recordHistory()
 {
-    static uint32_t last_rx = 0;
-    static uint32_t last_tx = 0;
+    static int last_ok = 0;
+    static int last_error = 0;
     static uint32_t calls = 0;
+    static uint32_t stas_win = stas_window;
+
     calls++;
 
-    float received = g_rxPktNum - last_rx;
-    float sent = g_txPktNum - last_tx;
-    float errs = sent - received;
+    float ok = rxOk - last_ok;
+    float error = rxError - last_error;
     float ratio;
+    uint32_t stas_counter = 0;
 
-    ratio = errs / sent;
+    // p_col values
+    ratio = 2*error/(2*error+ok/2);
+    //NS_LOG_UNCOND("p_col = " << ratio);
+
     history.push_front(ratio);
 
     if (history.size() > history_length)
     {
         history.pop_back();
     }
-    last_rx = g_rxPktNum;
-    last_tx = g_txPktNum;
+    last_ok = rxOk;
+    last_error = rxError;
+
+    if (new_state)
+    {
+        // effective stas numbers
+        stas_win--;
+        if (stas_win == 0)
+        {
+            for (uint32_t i = 0; i < effective_stas.size(); i++)
+            {
+                if (outputFile[3].is_open())
+                    outputFile[3] << i << "," << effective_stas[i] << endl;
+                if (effective_stas[i] >= stas_threshold)
+                    stas_counter++;
+                effective_stas[i] = 0; // reset
+            }
+            eff_stas.push_front(stas_counter);
+            if (eff_stas.size() > stas_length)
+            {
+                eff_stas.pop_back();
+            }
+            stas_win = stas_window;
+        }
+    }
 
     if (calls < history_length && non_zero_start)
     {
@@ -283,488 +360,85 @@ void recordHistory()
     }
     else if (calls == history_length && non_zero_start)
     {
-        g_rxPktNum = 0;
-        g_txPktNum = 0;
-        last_rx = 0;
-        last_tx = 0;
+        rxOk = 0;
+        rxError = 0;
+        last_ok = 0;
+        last_error = 0;
     }
 }
 
-// --- START PACKET SENT FUNCIONS ---
-void packetSent0(Ptr<const Packet> packet)
+void phyRxOk(Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
 {
-    g_txPktNum++;
-    txPkts[0]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "0," << txPkts[0] << endl;
+    //NS_LOG_UNCOND("RX OK");
+    rxOk++;
 }
 
-void packetSent1(Ptr<const Packet> packet)
+void phyRxError(Ptr<const Packet> packet, double snr)
 {
-    g_txPktNum++;
-    txPkts[1]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "1," << txPkts[1] << endl;
+    //NS_LOG_UNCOND("RX ERROR");
+    rxError++;
 }
 
-void packetSent2(Ptr<const Packet> packet)
+void packetSent(std::string context, Ptr< const Packet > packet)
 {
-    g_txPktNum++;
-    txPkts[2]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "2," << txPkts[2] << endl;
+    // Get id of transmitter node
+    std::string delimiter = "/";
+    size_t pos = 0;
+    std::string str_id;
+    int id = -1;
+    int counter = 0;
+    while ((pos = context.find(delimiter)) != std::string::npos) {
+        str_id = context.substr(0, pos);
+        context.erase(0, pos + delimiter.length());
+        if (counter == 2) // Reached node id
+            break;
+        counter++;
+    }
+    id = std::stoi(str_id);
+    effective_stas[id]++;
 }
 
-void packetSent3(Ptr<const Packet> packet)
+void tcpDataPacketReceived(Ptr<const Packet> packet, const Address &ad)
 {
-    g_txPktNum++;
-    txPkts[3]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "3," << txPkts[3] << endl;
+    g_rxDataPktNum++;
 }
 
-void packetSent4(Ptr<const Packet> packet)
+void set_phy(int nWifi, NodeContainer &wifiStaNode, NodeContainer &wifiApNode, YansWifiPhyHelper &phy)
 {
-    g_txPktNum++;
-    txPkts[4]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "4," << txPkts[4] << endl;
-}
-
-void packetSent5(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[5]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "5," << txPkts[5] << endl;
-}
-
-void packetSent6(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[6]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "6," << txPkts[6] << endl;
-}
-
-void packetSent7(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[7]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "7," << txPkts[7] << endl;
-}
-
-void packetSent8(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[8]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "8," << txPkts[8] << endl;
-}
-
-void packetSent9(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[9]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "9," << txPkts[9] << endl;
-}
-
-void packetSent10(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[10]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "10," << txPkts[10] << endl;
-}
-
-void packetSent11(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[11]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "11," << txPkts[11] << endl;
-}
-
-void packetSent12(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[12]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "12," << txPkts[12] << endl;
-}
-
-void packetSent13(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[13]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "13," << txPkts[13] << endl;
-}
-
-void packetSent14(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[14]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "14," << txPkts[14] << endl;
-}
-
-void packetSent15(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[15]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "15," << txPkts[15] << endl;
-}
-
-void packetSent16(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[16]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "16," << txPkts[16] << endl;
-}
-
-void packetSent17(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[17]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "17," << txPkts[17] << endl;
-}
-
-void packetSent18(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[18]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "18," << txPkts[18] << endl;
-}
-
-void packetSent19(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[19]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "19," << txPkts[19] << endl;
-}
-
-void packetSent20(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[20]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "20," << txPkts[20] << endl;
-}
-
-void packetSent21(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[21]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "21," << txPkts[21] << endl;
-}
-
-void packetSent22(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[22]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "22," << txPkts[22] << endl;
-}
-
-void packetSent23(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[23]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "23," << txPkts[23] << endl;
-}
-
-void packetSent24(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[24]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "24," << txPkts[24] << endl;
-}
-
-void packetSent25(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[25]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "25," << txPkts[25] << endl;
-}
-
-void packetSent26(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[26]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "26," << txPkts[26] << endl;
-}
-
-void packetSent27(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[27]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "27," << txPkts[27] << endl;
-}
-
-void packetSent28(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[28]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "28," << txPkts[28] << endl;
-}
-
-void packetSent29(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[29]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "29," << txPkts[29] << endl;
-}
-
-void packetSent30(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[30]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "30," << txPkts[30] << endl;
-}
-
-void packetSent31(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[31]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "31," << txPkts[31] << endl;
-}
-
-void packetSent32(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[32]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "32," << txPkts[32] << endl;
-}
-
-void packetSent33(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[33]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "33," << txPkts[33] << endl;
-}
-
-void packetSent34(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[34]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "34," << txPkts[34] << endl;
-}
-
-void packetSent35(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[35]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "35," << txPkts[35] << endl;
-}
-
-void packetSent36(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[36]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "36," << txPkts[36] << endl;
-}
-
-void packetSent37(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[37]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "37," << txPkts[37] << endl;
-}
-
-void packetSent38(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[38]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "38," << txPkts[38] << endl;
-}
-
-void packetSent39(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[39]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "39," << txPkts[39] << endl;
-}
-
-void packetSent40(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[40]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "40," << txPkts[40] << endl;
-}
-
-void packetSent41(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[41]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "41," << txPkts[41] << endl;
-}
-
-void packetSent42(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[42]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "42," << txPkts[42] << endl;
-}
-
-void packetSent43(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[43]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "43," << txPkts[43] << endl;
-}
-
-void packetSent44(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[44]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "44," << txPkts[44] << endl;
-}
-
-void packetSent45(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[45]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "45," << txPkts[45] << endl;
-}
-
-void packetSent46(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[46]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "46," << txPkts[46] << endl;
-}
-
-void packetSent47(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[47]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "47," << txPkts[47] << endl;
-}
-
-void packetSent48(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[48]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "48," << txPkts[48] << endl;
-}
-
-void packetSent49(Ptr<const Packet> packet)
-{
-    g_txPktNum++;
-    txPkts[49]++;
-
-    if (outputFile[0].is_open())
-        outputFile[0] << "49," << txPkts[49] << endl;
-}
-// --- END PACKET SENT FUNCTIONS ---
-
-void set_phy(int nWifi, int guardInterval, NodeContainer &wifiStaNode, NodeContainer &wifiApNode, YansWifiPhyHelper &phy)
-{
-    Ptr<MatrixPropagationLossModel> lossModel = CreateObject<MatrixPropagationLossModel>();
-    lossModel->SetDefaultLoss(50);
-
     wifiStaNode.Create(nWifi);
     wifiApNode.Create(1);
 
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
+
+    // Propagation loss depending on distance between nodes
+    //channel.AddPropagationLoss ("ns3::FriisPropagationLossModel", "Frequency", DoubleValue (5.210e9), "MinLoss", DoubleValue (0.0));
+    //channel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+
     Ptr<YansWifiChannel> chan = channel.Create();
+
+    // Original propagation loss model
+    Ptr<MatrixPropagationLossModel> lossModel = CreateObject<MatrixPropagationLossModel>();
+    lossModel->SetDefaultLoss(50);
     chan->SetPropagationLossModel(lossModel);
     chan->SetPropagationDelayModel(CreateObject<ConstantSpeedPropagationDelayModel>());
 
     phy = YansWifiPhyHelper::Default();
     phy.SetChannel(chan);
-
-    // Set guard interval
-    phy.Set("GuardInterval", TimeValue(NanoSeconds(guardInterval)));
 }
 
-void set_nodes(int channelWidth, int rng, int32_t simSeed, NodeContainer wifiStaNode, NodeContainer wifiApNode, YansWifiPhyHelper phy, WifiMacHelper mac, WifiHelper wifi, NetDeviceContainer &apDevice)
+void set_nodes(int nWifi, int channelWidth, int rng, int32_t simSeed, NodeContainer wifiStaNode, NodeContainer wifiApNode, Ipv4InterfaceContainer &staNodeInterface,
+    Ipv4InterfaceContainer &apNodeInterface, YansWifiPhyHelper phy, WifiMacHelper mac, WifiHelper wifi, NetDeviceContainer &apDevice)
 {
-    Ssid ssid = Ssid("ns3-80211ax");
+    //double apTxPowerStart = 30.0; // dbm
+    //double apTxPowerEnd = 30.0; // dbm
+    //double staTxPowerStart = 32.0; // dbm
+    //double staTxPowerEnd = 32.0; // dbm
+
+    Ssid ssid = Ssid("ns3-80211");
+
+    // Configure STAs tx power
+    //phy.Set("TxPowerStart", DoubleValue (staTxPowerStart));
+    //phy.Set("TxPowerEnd", DoubleValue (staTxPowerEnd));
 
     mac.SetType("ns3::StaWifiMac",
                 "Ssid", SsidValue(ssid),
@@ -774,8 +448,13 @@ void set_nodes(int channelWidth, int rng, int32_t simSeed, NodeContainer wifiSta
     NetDeviceContainer staDevice;
     staDevice = wifi.Install(phy, mac, wifiStaNode);
 
+    // Configure AP tx power
+    //phy.Set("TxPowerStart", DoubleValue (apTxPowerStart));
+    //phy.Set("TxPowerEnd", DoubleValue (apTxPowerEnd));
+
     mac.SetType("ns3::ApWifiMac",
                 "EnableBeaconJitter", BooleanValue(false),
+                "BeaconInterval", TimeValue(Seconds(10)),
                 "Ssid", SsidValue(ssid));
 
     apDevice = wifi.Install(phy, mac, wifiApNode);
@@ -783,32 +462,35 @@ void set_nodes(int channelWidth, int rng, int32_t simSeed, NodeContainer wifiSta
     // Set channel width
     Config::Set("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue(channelWidth));
 
-    // mobility.
+    // Set mobility
     MobilityHelper mobility;
-    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator>();
 
+    // Original distribution
+    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator>();
     positionAlloc->Add(Vector(0.0, 0.0, 0.0));
     positionAlloc->Add(Vector(1.0, 0.0, 0.0));
     mobility.SetPositionAllocator(positionAlloc);
+
+    // STAs in grid (with and without far STA)
+    //mobility.SetPositionAllocator (getCoordinates(nWifi, far_sta));
 
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
     mobility.Install(wifiApNode);
     mobility.Install(wifiStaNode);
-    /* Internet stack*/
+
+    // Set Internet stack
     InternetStackHelper stack;
     stack.Install(wifiApNode);
     stack.Install(wifiStaNode);
 
-    //Random
+    // Random
     if(simSeed!=-1)
         RngSeedManager::SetSeed(simSeed);
     RngSeedManager::SetRun(rng);
 
     Ipv4AddressHelper address;
     address.SetBase("192.168.1.0", "255.255.255.0");
-    Ipv4InterfaceContainer staNodeInterface;
-    Ipv4InterfaceContainer apNodeInterface;
 
     staNodeInterface = address.Assign(staDevice);
     apNodeInterface = address.Assign(apDevice);
@@ -821,12 +503,15 @@ void set_nodes(int channelWidth, int rng, int32_t simSeed, NodeContainer wifiSta
     else
     {
         NS_LOG_UNCOND("Default CW");
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW_opt));
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW_opt));
+        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw",
+            UintegerValue(CW_dryRun));
+        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw",
+            UintegerValue(CW_dryRun));
     }
 }
 
-void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansWifiPhyHelper phy, NetDeviceContainer apDevice, int end_delay, Ptr<FlowMonitor> &monitor, FlowMonitorHelper &flowmon)
+void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansWifiPhyHelper phy, NetDeviceContainer apDevice, int end_delay, Ptr<FlowMonitor> &monitor,
+    FlowMonitorHelper &flowmon, Address addr)
 {
     monitor = flowmon.InstallAll();
     monitor->SetAttribute("StartTime", TimeValue(Seconds(warmup)));
@@ -834,7 +519,7 @@ void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansW
     if (tracing)
     {
         phy.SetPcapDataLinkType(WifiPhyHelper::DLT_IEEE802_11_RADIO);
-        phy.EnablePcap("cw", apDevice.Get(0));
+        phy.EnablePcap("pcap-" + std::to_string(std::time(0)), apDevice.Get(0));
     }
 
     Ptr<OpenGymInterface> openGymInterface = CreateObject<OpenGymInterface>(openGymPort);
@@ -843,11 +528,9 @@ void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansW
     openGymInterface->SetGetGameOverCb(MakeCallback(&MyGetGameOver));
     openGymInterface->SetGetObservationCb(MakeCallback(&MyGetObservation));
     openGymInterface->SetGetRewardCb(MakeCallback(&MyGetReward));
-    openGymInterface->SetGetExtraInfoCb(MakeCallback(&MyGetExtraInfo));
+    openGymInterface->SetGetExtraInfoCb(MakeBoundCallback(&MyGetExtraInfo, addr));
     openGymInterface->SetExecuteActionsCb(MakeCallback(&MyExecuteActions));
 
-    // if (!dry_run)
-    // {
     if (non_zero_start)
     {
         Simulator::Schedule(Seconds(1.0), &recordHistory);
@@ -855,7 +538,6 @@ void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansW
     }
     else
         Simulator::Schedule(Seconds(1.0), &ScheduleNextStateRead, envStepTime, openGymInterface);
-    // }
 
     Simulator::Stop(Seconds(simulationTime + end_delay + 1.0 + envStepTime*(history_length+1)));
 
@@ -871,58 +553,62 @@ void signalHandler(int signum)
 
 int main(int argc, char *argv[])
 {
-    int nWifi = 5;
+    string scenario = "basic";
     bool tracing = false;
     bool useRts = false;
-    int mcs = 11;
-    int channelWidth = 20;
-    int guardInterval = 800;
-    string offeredLoad = "150";
-    int port = 1025;
-    string outputCsv = "cw.csv";
-    string scenario = "basic";
-    dry_run = false;
-
+    int32_t simSeed = -1;
+    uint32_t openGymPort = 5555;
     int rng = 1;
     int warmup = 1;
 
-    uint32_t openGymPort = 5555;
-    int32_t simSeed = -1;
+    int mcs = 11;
+    int channelWidth = 20;      // MHz
+    string offeredLoad = "150"; // Mbps
+    int port = 1025;
 
     // Open and insert headers in log files
     outputFile[0].open(filename[0].c_str(), std::ios_base::app); // TX
     outputFile[1].open(filename[1].c_str(), std::ios_base::app); // RX
     outputFile[2].open(filename[2].c_str(), std::ios_base::app); // CW values
+    outputFile[3].open(filename[3].c_str(), std::ios_base::app); // threshold for effective STAs
     if (outputFile[0].is_open())
         outputFile[0] << "STA_id,tx_pkts" << endl;
     if (outputFile[1].is_open())
         outputFile[1] << "STA_id,rx_pkts" << endl;
     if (outputFile[2].is_open())
         outputFile[2] << "CW,action" << endl;
+    if (outputFile[3].is_open())
+        outputFile[3] << "STA_id,threshold" << endl;
 
     signal(SIGTERM, signalHandler);
 
     CommandLine cmd;
-    cmd.AddValue("openGymPort", "Specify port number. Default: 5555", openGymPort);
-    cmd.AddValue("CW", "Value of Contention Window", CW);
-    cmd.AddValue("historyLength", "Length of history window", history_length);
-    cmd.AddValue("nWifi", "Number of wifi 802.11ax STA devices", nWifi);
+    cmd.AddValue("newState", "Use state = p_col + n (true) or state = p_col (false)", new_state);
+    cmd.AddValue("udp", "Use UDP as transport protocol (true) or TCP (false)", udp);
+    cmd.AddValue("direction", "Transmission direction: 0: UL, 1: DL, 2: UL+DL", direction);
+    cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
+    cmd.AddValue("scenario", "Scenario for analysis: basic, convergence", scenario);
+    cmd.AddValue("dryRun", "Execute scenario with BEB and no agent interaction", dry_run);
+    cmd.AddValue("cw_dryRun", "Value of Contention Window for dryRun execution", CW_dryRun);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
     cmd.AddValue("tracing", "Enable pcap tracing", tracing);
-    cmd.AddValue("rng", "Number of RngRun", rng);
     cmd.AddValue("simTime", "Simulation time in seconds. Default: 10s", simulationTime);
     cmd.AddValue("envStepTime", "Step time in seconds. Default: 0.1s", envStepTime);
+    cmd.AddValue("historyLength", "Length of history window", history_length);
+    cmd.AddValue("stasWindow", "Length of eff_stas window", stas_window);
+    cmd.AddValue("stasThreshold", "Threshold to consider stas as active", stas_threshold);
     cmd.AddValue("agentType", "Type of agent actions: discrete, continuous", type);
-    cmd.AddValue("nonZeroStart", "Start only after history buffer is filled", non_zero_start);
-    cmd.AddValue("scenario", "Scenario for analysis: basic, convergence, reaction", scenario);
-    cmd.AddValue("dryRun", "Execute scenario with BEB and no agent interaction", dry_run);
     cmd.AddValue("seed", "Random seed", simSeed);
+    cmd.AddValue("openGymPort", "Specify port number. Default: 5555", openGymPort);
+    cmd.AddValue("rng", "Number of RngRun", rng);
+    cmd.AddValue("nonZeroStart", "Start only after history buffer is filled", non_zero_start);
 
     cmd.Parse(argc, argv);
-    // history_length*=2;
 
     NS_LOG_UNCOND("Ns3Env parameters:");
     NS_LOG_UNCOND("--nWifi: " << nWifi);
+    NS_LOG_UNCOND("--udp: " << BooleanValue(udp));
+    NS_LOG_UNCOND("--direction (0: UL, 1: DL, 2: UL+DL): " << direction);
     NS_LOG_UNCOND("--simulationTime: " << simulationTime);
     NS_LOG_UNCOND("--openGymPort: " << openGymPort);
     NS_LOG_UNCOND("--envStepTime: " << envStepTime);
@@ -942,135 +628,73 @@ int main(int argc, char *argv[])
         Config::SetDefault("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue("0"));
     }
 
+    // Payload size = MTU - IPv4 header - (TCP or UDP) header
+    // Headers' values taken from: https://cs.fit.edu/~mmahoney/cse4232/tcpip.html
+    payloadSize = udp ? 1472 : 1460; // bytes
+
     NodeContainer wifiStaNode;
     NodeContainer wifiApNode;
+    Ipv4InterfaceContainer staNodeInterface;
+    Ipv4InterfaceContainer apNodeInterface;
     YansWifiPhyHelper phy;
-    set_phy(nWifi, guardInterval, wifiStaNode, wifiApNode, phy);
+    set_phy(nWifi, wifiStaNode, wifiApNode, phy);
 
     WifiMacHelper mac;
     WifiHelper wifi;
 
-    wifi.SetStandard(WIFI_PHY_STANDARD_80211ax_5GHZ);
-
     std::ostringstream oss;
-    oss << "HeMcs" << mcs;
-    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()),
-                                 "ControlMode", StringValue(oss.str()));
 
-    //802.11ac PHY
-    /*
-  phy.Set ("ShortGuardEnabled", BooleanValue (0));
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
-  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
-  "DataMode", StringValue ("VhtMcs8"),
-  "ControlMode", StringValue ("VhtMcs8"));
- */
-    //802.11n PHY
-    //phy.Set ("ShortGuardEnabled", BooleanValue (1));
+    // 802.11ax PHY
+    phy.Set("GuardInterval", TimeValue(NanoSeconds(800)));
+    wifi.SetStandard(WIFI_PHY_STANDARD_80211ax_5GHZ);
+    oss << "HeMcs" << mcs;
+    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
+
+    // 802.11ac PHY
+    //phy.Set ("ShortGuardEnabled", BooleanValue(true));
+    //wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
+    //oss << "VhtMcs" << mcs;
+    //wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
+
+    // 802.11n PHY
+    //phy.Set ("ShortGuardEnabled", BooleanValue(true));
     //wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
-    //wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
-    //                              "DataMode", StringValue ("HtMcs7"),
-    //                              "ControlMode", StringValue ("HtMcs7"));
+    //oss << "HtMcs" << mcs;
+    //wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
 
     NetDeviceContainer apDevice;
-    set_nodes(channelWidth, rng, simSeed, wifiStaNode, wifiApNode, phy, mac, wifi, apDevice);
+    set_nodes(nWifi, channelWidth, rng, simSeed, wifiStaNode, wifiApNode, staNodeInterface, apNodeInterface, phy, mac, wifi, apDevice);
 
-    ScenarioFactory helper = ScenarioFactory(nWifi, wifiStaNode, wifiApNode, port, offeredLoad, history_length);
+    ScenarioFactory helper = ScenarioFactory(nWifi, wifiStaNode, wifiApNode, staNodeInterface, apNodeInterface, port, offeredLoad, history_length);
     wifiScenario = helper.getScenario(scenario);
 
-    // if (!dry_run)
-    // {
     if (non_zero_start)
         end_delay = envStepTime * history_length + 1.0;
     else
         end_delay = 0.0;
-    // }
 
-    wifiScenario->installScenario(simulationTime + end_delay + envStepTime, envStepTime);
+    wifiScenario->installScenario(simulationTime + end_delay + envStepTime, envStepTime, udp, direction, payloadSize);
 
-    Config::ConnectWithoutContext("/NodeList/0/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent0));
-    Config::ConnectWithoutContext("/NodeList/1/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent1));
-    Config::ConnectWithoutContext("/NodeList/2/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent2));
-    Config::ConnectWithoutContext("/NodeList/3/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent3));
-    Config::ConnectWithoutContext("/NodeList/4/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent4));
-    Config::ConnectWithoutContext("/NodeList/5/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent5));
-    Config::ConnectWithoutContext("/NodeList/6/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent6));
-    Config::ConnectWithoutContext("/NodeList/7/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent7));
-    Config::ConnectWithoutContext("/NodeList/8/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent8));
-    Config::ConnectWithoutContext("/NodeList/9/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent9));
-    Config::ConnectWithoutContext("/NodeList/10/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent10));
-    Config::ConnectWithoutContext("/NodeList/11/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent11));
-    Config::ConnectWithoutContext("/NodeList/12/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent12));
-    Config::ConnectWithoutContext("/NodeList/13/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent13));
-    Config::ConnectWithoutContext("/NodeList/14/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent14));
-    Config::ConnectWithoutContext("/NodeList/15/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent15));
-    Config::ConnectWithoutContext("/NodeList/16/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent16));
-    Config::ConnectWithoutContext("/NodeList/17/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent17));
-    Config::ConnectWithoutContext("/NodeList/18/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent18));
-    Config::ConnectWithoutContext("/NodeList/19/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent19));
-    Config::ConnectWithoutContext("/NodeList/20/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent20));
-    Config::ConnectWithoutContext("/NodeList/21/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent21));
-    Config::ConnectWithoutContext("/NodeList/22/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent22));
-    Config::ConnectWithoutContext("/NodeList/23/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent23));
-    Config::ConnectWithoutContext("/NodeList/24/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent24));
+    // Traces for p_col calculation
+    Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/State/RxOk", MakeCallback(&phyRxOk));
+    Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/State/RxError", MakeCallback(&phyRxError));
 
-    Config::ConnectWithoutContext("/NodeList/25/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent25));
-    Config::ConnectWithoutContext("/NodeList/26/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent26));
-    Config::ConnectWithoutContext("/NodeList/27/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent27));
-    Config::ConnectWithoutContext("/NodeList/28/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent28));
-    Config::ConnectWithoutContext("/NodeList/29/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent29));
-    Config::ConnectWithoutContext("/NodeList/30/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent30));
-    Config::ConnectWithoutContext("/NodeList/31/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent31));
-    Config::ConnectWithoutContext("/NodeList/32/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent32));
-    Config::ConnectWithoutContext("/NodeList/33/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent33));
-    Config::ConnectWithoutContext("/NodeList/34/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent34));
-    Config::ConnectWithoutContext("/NodeList/35/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent35));
-    Config::ConnectWithoutContext("/NodeList/36/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent36));
-    Config::ConnectWithoutContext("/NodeList/37/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent37));
-    Config::ConnectWithoutContext("/NodeList/38/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent38));
-    Config::ConnectWithoutContext("/NodeList/39/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent39));
-    Config::ConnectWithoutContext("/NodeList/40/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent40));
-    Config::ConnectWithoutContext("/NodeList/41/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent41));
-    Config::ConnectWithoutContext("/NodeList/42/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent42));
-    Config::ConnectWithoutContext("/NodeList/43/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent43));
-    Config::ConnectWithoutContext("/NodeList/44/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent44));
-    Config::ConnectWithoutContext("/NodeList/45/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent45));
-    Config::ConnectWithoutContext("/NodeList/46/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent46));
-    Config::ConnectWithoutContext("/NodeList/47/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent47));
-    Config::ConnectWithoutContext("/NodeList/48/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent48));
-    Config::ConnectWithoutContext("/NodeList/49/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent49));
+    // Trace for eff_stas
+    Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent));
+
+    // Trace for throughput calculation -- TCP
+    Config::ConnectWithoutContext("/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx", MakeCallback(&tcpDataPacketReceived));
 
     wifiScenario->PopulateARPcache();
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    set_sim(tracing, dry_run, warmup, openGymPort, phy, apDevice, end_delay, monitor, flowmon, apNodeInterface.GetAddress(0));
 
-    set_sim(tracing, dry_run, warmup, openGymPort, phy, apDevice, end_delay, monitor, flowmon);
-
-    double flowThr;
-    float res =  g_rxPktNum * (1500 - 20 - 8 - 8) * 8.0 / 1024 / 1024;
+    float res =  g_rxDataPktNum * payloadSize * 8.0 / 1024 / 1024;
     printf("Sent mbytes: %.2f\tThroughput: %.3f", res, res/simulationTime);
-    ofstream myfile;
-    myfile.open(outputCsv, ios::app);
-
-    /* Contents of CSV output file
-    Timestamp, CW, nWifi, RngRun, SourceIP, DestinationIP, Throughput
-    */
-    Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
-    std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
-    for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i)
-    {
-        auto time = std::time(nullptr); //Get timestamp
-        auto tm = *std::localtime(&time);
-        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
-        flowThr = i->second.rxBytes * 8.0 / simulationTime / 1000 / 1000;
-        NS_LOG_UNCOND("Flow " << i->first << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\tThroughput: " << flowThr << " Mbps\tTime: " << i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds() << " s\tRx packets " << i->second.rxPackets);
-        myfile << std::put_time(&tm, "%Y-%m-%d %H:%M") << "," << CW << "," << nWifi << "," << RngSeedManager::GetRun() << "," << t.sourceAddress << "," << t.destinationAddress << "," << flowThr;
-        myfile << std::endl;
-    }
-    myfile.close();
 
     Simulator::Destroy();
-    NS_LOG_UNCOND("Packets registered by handler: " << g_rxPktNum << " Packets" << endl);
+    NS_LOG_UNCOND("Packets registered by handler: " << g_rxDataPktNum << " Packets" << endl);
 
     return 0;
 }
