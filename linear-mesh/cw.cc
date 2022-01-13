@@ -203,7 +203,7 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
     }
     else if (type == "continuous")
     {
-        CW = pow(2, actionVector.at(0) + 4);
+        CW = pow(2, actionVector.at(0) + 4)- 1; //add -1
     }
     else if (type == "direct_continuous")
     {
@@ -403,6 +403,8 @@ void tcpDataPacketReceived(Ptr<const Packet> packet, const Address &ad)
     g_rxDataPktNum++;
 }
 
+
+
 void set_phy(int nWifi, NodeContainer &wifiStaNode, NodeContainer &wifiApNode, YansWifiPhyHelper &phy)
 {
     wifiStaNode.Create(nWifi);
@@ -429,10 +431,10 @@ void set_phy(int nWifi, NodeContainer &wifiStaNode, NodeContainer &wifiApNode, Y
 void set_nodes(int nWifi, int channelWidth, int rng, int32_t simSeed, NodeContainer wifiStaNode, NodeContainer wifiApNode, Ipv4InterfaceContainer &staNodeInterface,
     Ipv4InterfaceContainer &apNodeInterface, YansWifiPhyHelper phy, WifiMacHelper mac, WifiHelper wifi, NetDeviceContainer &apDevice)
 {
-    //double apTxPowerStart = 30.0; // dbm
-    //double apTxPowerEnd = 30.0; // dbm
-    //double staTxPowerStart = 32.0; // dbm
-    //double staTxPowerEnd = 32.0; // dbm
+    //double apTxPowerStart = 50.0; // dbm
+    //double apTxPowerEnd = 50.0; // dbm
+    //double staTxPowerStart = 50.0; // dbm
+    //double staTxPowerEnd = 50.0; // dbm
 
     Ssid ssid = Ssid("ns3-80211");
 
@@ -588,6 +590,7 @@ int main(int argc, char *argv[])
     cmd.AddValue("direction", "Transmission direction: 0: UL, 1: DL, 2: UL+DL", direction);
     cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
     cmd.AddValue("scenario", "Scenario for analysis: basic, convergence", scenario);
+    cmd.AddValue("mixedScenario", "Enable/Disable mixed traffic scenario", mixedScenario);
     cmd.AddValue("dryRun", "Execute scenario with BEB and no agent interaction", dry_run);
     cmd.AddValue("cw_dryRun", "Value of Contention Window for dryRun execution", CW_dryRun);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
@@ -647,8 +650,13 @@ int main(int argc, char *argv[])
     // 802.11ax PHY
     phy.Set("GuardInterval", TimeValue(NanoSeconds(800)));
     wifi.SetStandard(WIFI_PHY_STANDARD_80211ax_5GHZ);
+
+    // Fixed MCS
     oss << "HeMcs" << mcs;
     wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
+
+    // Variable MCS
+    //wifi.SetRemoteStationManager("ns3::IdealWifiManager");
 
     // 802.11ac PHY
     //phy.Set ("ShortGuardEnabled", BooleanValue(true));
@@ -680,7 +688,7 @@ int main(int argc, char *argv[])
     Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/State/RxError", MakeCallback(&phyRxError));
 
     // Trace for eff_stas
-    Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent));
+    Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacTx", MakeCallback(&packetSent));
 
     // Trace for throughput calculation -- TCP
     Config::ConnectWithoutContext("/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx", MakeCallback(&tcpDataPacketReceived));

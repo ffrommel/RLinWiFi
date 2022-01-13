@@ -18,6 +18,7 @@ ofstream outputFile[4];
 int nWifi = 5;
 bool udp = true;                // true: UDP, false: TCP
 int direction = 0;              // 0: UL, 1: DL, 2: UL+DL
+bool mixedScenario = false;
 
 uint64_t g_rxDataPktNum = 0;
 vector<int> effective_stas(51, 0);
@@ -151,11 +152,12 @@ void Scenario::installUDPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node
 {
     start_times.push_back(startTime);
     end_times.push_back(endTime);
+    //static double d = 0;
 
-    double min = 0.0;
+    double min = 0;
     double max;
     if (direction == 2) // UL+DL
-        max = (fromNode->GetId() == (uint32_t) nWifi) ? 5.0 : 0.0; // random in DL direction
+        max = (fromNode->GetId() == (uint32_t) nWifi) ? 5.0 : 0.0; // Random in DL direction
     else // UL or DL
         max = 1.0;
     Ptr<UniformRandomVariable> fuzz = CreateObject<UniformRandomVariable>();
@@ -174,7 +176,9 @@ void Scenario::installUDPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node
     OnOffHelper onOffHelper("ns3::UdpSocketFactory", sinkSocket);
     onOffHelper.SetConstantRate(DataRate(offeredLoad + "Mbps"), payloadSize);
     sourceApplications.Add(onOffHelper.Install(fromNode));
-    sourceApplications.StartWithJitter(Seconds(startTime), fuzz);
+    //sourceApplications.StartWithJitter(Seconds(startTime), fuzz);
+    sourceApplications.Start(Seconds(startTime));
+    //d = d + 0.5;
     sourceApplications.Stop(Seconds(endTime));
 
     UdpServerHelper sink(port);
@@ -198,7 +202,7 @@ void Scenario::installTCPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node
     Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (payloadSize));
     // Set sender and receiver buffer size
     Config::SetDefault ("ns3::TcpSocket::SndBufSize", UintegerValue (1 << 20));
-    Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (1 << 18));
+    Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (1 << 20));
     // Set default initial congestion window
     Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (10));
 
@@ -271,24 +275,64 @@ void Scenario::PopulateARPcache()
 
 void BasicScenario::installScenario(double simulationTime, double envStepTime, bool udp, int direction, int payloadSize)
 {
+    string offeredLoad = this->offeredLoad;
+    double startUdp = 0.0; // s
     for (int i = 0; i < this->nWifim; ++i)
     {
+/*
+        if (i < 10)
+        {
+            // TCP UL+DL (#STAs = 10) from 0 s to simulationTime/2 s
+            // UL
+            installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, 1460, 0.0, 30);
+            // DL
+            installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, 1460, 0.0, 30);
+        }
+        else
+        {
+            // TCP UL+DL (#STAs = 25) from simulationTime/2 s to simulationTime s
+            // UL
+            installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, 1460, 35,
+                simulationTime + 2 + envStepTime*history_length);
+            // DL
+            installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, 1460, 35,
+                simulationTime + 2 + envStepTime*history_length);
+        }
+*/
+        // Force mixed scenario
+        if (mixedScenario)
+        {
+            if (i < 5)
+            {
+                udp = true;
+                direction = 0;
+                payloadSize = 1472;  // bytes
+                offeredLoad = "1.5"; // Mbps
+                startUdp = 60.0;     // s
+            }
+            else
+            {
+                udp = false;
+                payloadSize = 1460; // bytes
+                direction = 2;
+            }
+        }
         if (udp)
         {
             switch(direction)
             {
                 case 0: // UL
-                    installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, 0.0, simulationTime + 2 +
+                    installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
                         envStepTime*history_length);
                     break;
                 case 1: // DL
-                    installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, 0.0, simulationTime + 2 +
+                    installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
                         envStepTime*history_length);
                     break;
                 case 2: // UL+DL
-                    installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, 0.0, simulationTime + 2 +
+                    installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
                         envStepTime*history_length);
-                    installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, 0.0, simulationTime + 2 +
+                    installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
                         envStepTime*history_length);
                     break;
             }
@@ -313,6 +357,7 @@ void BasicScenario::installScenario(double simulationTime, double envStepTime, b
                     break;
             }
         }
+
     }
 }
 
@@ -322,6 +367,10 @@ void ConvergenceScenario::installScenario(double simulationTime, double envStepT
     float delay = history_length*envStepTime;
     if (this->nWifim > 5)
     {
+        // Force mixed scenario
+        //udp = true;         // UDP
+        //payloadSize = 1472; // bytes
+        //direction = 1;      // DL
         for (int i = 0; i < 5; ++i)
         {
             if (udp)
@@ -365,6 +414,10 @@ void ConvergenceScenario::installScenario(double simulationTime, double envStepT
                 }
             }
         }
+        // Force mixed scenario
+        //udp = false;        // TCP
+        //payloadSize = 1460; // bytes
+        //direction = 2;      // UL+DL
         for (int i = 5; i < this->nWifim; ++i)
         {
             if (udp)
@@ -372,17 +425,17 @@ void ConvergenceScenario::installScenario(double simulationTime, double envStepT
                 switch(direction)
                 {
                     case 0: // UL
-                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, delay+(i - 4) * delta,
+                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
                             simulationTime + 2 + delay);
                         break;
                     case 1: // DL
-                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, delay+(i - 4) * delta,
+                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
                             simulationTime + 2 + delay);
                         break;
                     case 2: // UL+DL
-                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, delay+(i - 4) * delta,
+                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
                             simulationTime + 2 + delay);
-                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, delay+(i - 4) * delta,
+                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
                             simulationTime + 2 + delay);
                         break;
                 }
@@ -393,17 +446,17 @@ void ConvergenceScenario::installScenario(double simulationTime, double envStepT
                 {
                     case 0: // UL
                         installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize,
-                            delay+(i - 4) * delta, simulationTime + 2 + delay);
+                            delay + (i - 4) * delta, simulationTime + 2 + delay);
                         break;
                     case 1: // DL
                         installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize,
-                            delay+(i - 4) * delta, simulationTime + 2 + delay);
+                            delay + (i - 4) * delta, simulationTime + 2 + delay);
                         break;
                     case 2: // UL+DL
                         installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize,
-                            delay+(i - 4) * delta, simulationTime + 2 + delay);
+                            delay + (i - 4) * delta, simulationTime + 2 + delay);
                         installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize,
-                            delay+(i - 4) * delta, simulationTime + 2 + delay);
+                            delay + (i - 4) * delta, simulationTime + 2 + delay);
                         break;
                 }
             }
