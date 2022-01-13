@@ -1,7 +1,7 @@
 import numpy as np
 import tqdm
 import subprocess
-from comet_ml import Experiment
+from comet_ml import OfflineExperiment
 from ns3gym import ns3env
 from ns3gym.start_sim import find_waf_path
 
@@ -25,7 +25,7 @@ class Logger:
                 with open(json_loc, "r") as f:
                     kwargs = json.load(f)
 
-                self.experiment = Experiment(**kwargs)
+                self.experiment = OfflineExperiment(**kwargs)
             else:
                 self.experiment = experiment
         self.sent_mb = 0
@@ -60,15 +60,17 @@ class Logger:
         self.current_speed = np.mean(np.asarray(self.speed_window)/self.step_time)
         self.sent_mb += round_mb
         CW = info[1]
-        self.stations = info[2]
-        fairness = info[3]
+        CW_ax = info[2]
+        self.stations = info[3]
+        fairness = info[4]
 
         if self.send_logs:
             self.experiment.log_metric("Round reward", np.mean(reward), step=step)
             self.experiment.log_metric("Per-ep reward", np.mean(cumulative_reward), step=step)
             self.experiment.log_metric("Megabytes sent", self.sent_mb, step=step)
             self.experiment.log_metric("Round megabytes sent", round_mb, step=step)
-            self.experiment.log_metric("Chosen CW", CW, step=step)
+            self.experiment.log_metric("Chosen CW for legacy devices", CW, step=step)
+            self.experiment.log_metric("Chosen CW for 802.11ax devices", CW_ax, step=step)
             self.experiment.log_metric("Station count", self.stations, step=step)
             self.experiment.log_metric("Current throughput", self.current_speed, step=step)
             self.experiment.log_metric("Fairness index", fairness, step=step)
@@ -106,15 +108,17 @@ class Teacher:
         self.env = env
         self.num_agents = num_agents
         self.CW = 16
-        self.action = None # For debug purposes
+        self.CW_ax = 16
+        self.action = None              # For debug purposes
 
     def dry_run(self, agent, steps_per_ep):
         obs = self.env.reset()
         obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), 1)))
+        add_noise = False
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
-                self.actions = agent.act()
+                self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                 next_obs, reward, done, info = self.env.step(self.actions)
 
                 obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), 1)))
@@ -122,8 +126,8 @@ class Teacher:
                 if(any(done)):
                     break
 
-    def eval(self, loadAgent, agent, simTime, stepTime, history_length, tags=None, parameters=None, experiment=None):
-        if loadAgent:
+    def eval(self, agent, simTime, stepTime, history_length, tags=None, parameters=None, experiment=None, dry_run=False):
+        if not dry_run:
             agent.load()
         steps_per_ep = int(simTime/stepTime + history_length)
 
@@ -132,9 +136,7 @@ class Teacher:
             logger.begin_logging(1, steps_per_ep, agent.noise.sigma, agent.noise.theta, stepTime)
         except  AttributeError:
             logger.begin_logging(1, steps_per_ep, None, None, stepTime)
-
         add_noise = False
-        new_state = parameters['newState']
 
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
@@ -147,29 +149,17 @@ class Teacher:
         cumulative_reward = 0
         reward = 0
         sent_mb = 0
-        stas_length = 1
 
         obs = self.env.reset()
-        if (new_state):
-            p_col = obs[0][:-stas_length]
-            eff_stas = obs[0][history_length:][0]
-        else:
-            p_col = obs
-            eff_stas = -1
-        obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
+        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
                 self.debug = obs
                 self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                 next_obs, reward, done, info = self.env.step(self.actions)
-                if (new_state):
-                    p_col = next_obs[0][:-stas_length]
-                    eff_stas = next_obs[0][history_length:][0]
-                else:
-                    p_col = next_obs
-                    eff_stas = -1
-                next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
+
+                next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
 
                 cumulative_reward += np.mean(reward)
 
@@ -192,7 +182,8 @@ class Teacher:
         logger.end()
         return logger
 
-    def train(self, agent, EPISODE_COUNT, simTime, stepTime, history_length, mixedTrain, send_logs=True, experimental=True, tags=None, parameters=None, experiment=None):
+
+    def train(self, agent, EPISODE_COUNT, simTime, stepTime, history_length, send_logs=True, experimental=True, tags=None, parameters=None, experiment=None):
         steps_per_ep = int(simTime/stepTime + history_length)
 
         logger = Logger(send_logs, tags, parameters, experiment=experiment)
@@ -202,7 +193,6 @@ class Teacher:
             logger.begin_logging(EPISODE_COUNT, steps_per_ep, None, None, stepTime)
 
         add_noise = True
-        new_state = parameters['newState']
 
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
@@ -221,32 +211,20 @@ class Teacher:
             cumulative_reward = 0
             reward = 0
             sent_mb = 0
-            stas_length = 1
 
             obs = self.env.reset()
-            if (new_state):
-                p_col = obs[0][:-stas_length]
-                eff_stas = obs[0][history_length:][0]
-            else:
-                p_col = obs
-                eff_stas = -1
-            obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
+            obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim))) # '-1' means unknown dimension, figured out by numpy
 
             self.last_actions = None
 
-            with tqdm.trange(steps_per_ep) as t:
+            with tqdm.trange(steps_per_ep) as t: # tqdm: Instantly make your loops show a smart progress meter
                 for step in t:
                     self.debug = obs
 
                     self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                     next_obs, reward, done, info = self.env.step(self.actions)
-                    if (new_state):
-                        p_col = next_obs[0][:-stas_length]
-                        eff_stas = next_obs[0][history_length:][0]
-                    else:
-                        p_col = next_obs
-                        eff_stas = -1
-                    next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas)
+                    # reward = 1-np.reshape(np.mean(next_obs), reward.shape)
+                    next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
 
                     if self.last_actions is not None and step>(history_length/obs_dim) and i<EPISODE_COUNT-1:
                         agent.step(obs, self.actions, reward, next_obs, done, 2)
@@ -266,52 +244,7 @@ class Teacher:
 
             self.env.close()
             if experimental:
-                # Define dictionary with original values
-                new_params = {
-                    "newState": parameters['newState'],
-                    "udp": parameters['udp'],
-                    "direction": parameters['direction'],
-                    "nWifi": parameters['nWifi'],
-                    "scenario": parameters['scenario'],
-                    "mixedScenario": parameters['mixedScenario'],
-                    "dryRun": parameters['dryRun'],
-                    "cw_dryRun": parameters['cw_dryRun'],
-                    "tracing": parameters['tracing'],
-                    "simTime": parameters['simTime'],
-                    "envStepTime": parameters['envStepTime'],
-                    "historyLength": parameters['historyLength'],
-                    "stasWindow": parameters['stasWindow'],
-                    "stasThreshold": parameters['stasThreshold'],
-                    "agentType": parameters['agentType'],
-                }
-                if mixedTrain:
-#                    if (i + 1) % 2 == 0: # Episode number even
-#                        # Keep all element values unchanged
-#                        pass
-#                    else: # Episode number odd
-#                        # Modify some element values
-#                        new_params['nWifi'] = 25
-
-                    # Get 1, ..., n from episode number to toggle settings
-                    j = i + 1 # First time runs with default values
-                    max_changes = 4 # 2 times in each scenario
-                    while j > max_changes - 1:
-                        if j - max_changes >= 0:
-                            j = j - max_changes
-
-                    if j == 0 or j == 1:
-                        # Keep all element values unchanged
-                        pass
-                    #elif j == 1:
-                        # Modify some element values
-                    #    new_params['udp'] = False
-                    #    new_params['direction'] = 2
-                    else: # j == 2 or 3
-                        # Modify some other element values
-                        new_params['udp'] = True
-                        new_params['direction'] = 0
-
-                self.env = EnvWrapper(self.env.no_threads, **new_params)
+                self.env = EnvWrapper(self.env.no_threads, **self.env.params)
 
             agent.reset()
             print(f"Sent {logger.sent_mb:.2f} Mb/s.\tMean speed: {logger.sent_mb/(simTime):.2f} Mb/s\tEpisode {i+1}/{EPISODE_COUNT} finished\n")
@@ -399,9 +332,13 @@ class EnvWrapper:
         time.sleep(5)
         for env in self.envs:
             env.close()
+        # subprocess.Popen(['bash', '-c', "killall linear-mesh"])
 
         self.SCRIPT_RUNNING = False
 
     def __getattr__(self, attr):
         for env in self.envs:
             env.attr()
+            print("#####")
+            print("env attr", env.attr())
+            print("#####")
