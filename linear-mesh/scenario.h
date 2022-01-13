@@ -4,54 +4,52 @@
 #include <fstream>
 #include <string>
 #include <math.h>
-#include <ctime>
-#include <iomanip>
+#include <ctime>   //timestampi
+#include <iomanip> // put_time
 #include <deque>
 #include <algorithm>
 
 using namespace std;
 using namespace ns3;
 
-string filename[4] = {"tx_pkts.csv", "rx_pkts.csv", "cw_values.csv", "threshold.csv"};
-ofstream outputFile[4];
-
-int nWifi = 5;
-bool udp = true;                // true: UDP, false: TCP
-int direction = 0;              // 0: UL, 1: DL, 2: UL+DL
-bool mixedScenario = false;
-
-uint64_t g_rxDataPktNum = 0;
-vector<int> effective_stas(51, 0);
-
-void udpDataPacketReceived(Ptr<const Packet> packet)
-{
-    //int id = std::stoi(str_id);
-    g_rxDataPktNum++;
-}
+ApplicationContainer serversApp = ApplicationContainer();
+ApplicationContainer clientsApp = ApplicationContainer();
+int headerSize;
 
 class Scenario
 {
   protected:
     int nWifim;
-    NodeContainer wifiStaNode;
-    NodeContainer wifiApNode;
-    Ipv4InterfaceContainer staNodeInterface;
-    Ipv4InterfaceContainer apNodeInterface;
+    int nAxm;
+    NodeContainer staNodes;
+    NodeContainer apNode;
+    Ipv4InterfaceContainer stasInterface;
+    Ipv4InterfaceContainer apInterface;
     int port;
-    std::string offeredLoad;
-    std::vector<double> start_times;
-    std::vector<double> end_times;
-    int history_length;
+    std::string dataRate; // Used only with UDP traffic
+    std::vector<double> startTimes;
+    std::vector<double> endTimes;
+    int historyLength;
 
-    void installUDPTrafficGenerator(ns3::Ptr<ns3::Node> fromNode, ns3::Ptr<ns3::Node> toNode, int port, int payloadSize, std::string offeredLoad, double startTime,
-        double endTime);
-    void installTCPTrafficGenerator(ns3::Ptr<ns3::Node> fromNode, ns3::Ptr<ns3::Node> toNode, ns3::Ipv4Address rxAddr, int port, int payloadSize, double startTime,
-        double endTime);
+    void generateUdpTraffic (double startTime,
+                             double endTime,
+                             int payloadSize,
+                             ns3::Ptr<ns3::Node> srvNode,
+                             ns3::Ptr<ns3::Node> cliNode,
+                             int port);
+
+    void generateTcpTraffic (double startTime,
+                             double endTime,
+                             int payloadSize,
+                             ns3::Ptr<ns3::Node> srvNode,
+                             ns3::Ptr<ns3::Node> cliNode,
+                             ns3::Ipv4Address address,
+                             int port);
 
   public:
-    Scenario(int nWifim, NodeContainer wifiStaNode, NodeContainer wifiApNode, Ipv4InterfaceContainer staNodeInterface, Ipv4InterfaceContainer apNodeInterface,
-        int port, std::string offeredLoad, int history_length);
-    virtual void installScenario(double simulationTime, double envStepTime, bool udp, int direction, int payloadSize) = 0;
+    Scenario(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface, int port,
+        std::string dataRate, int historyLength);
+    virtual void installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize) = 0;
     void PopulateARPcache();
     int getActiveStationCount(double time);
     float getStationUptime(int id, double time);
@@ -62,41 +60,44 @@ class BasicScenario : public Scenario
     using Scenario::Scenario;
 
   public:
-    void installScenario(double simulationTime, double envStepTime, bool udp, int direction, int payloadSize) override;
+    void installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize) override;
 };
 
 class ConvergenceScenario : public Scenario
 {
     using Scenario::Scenario;
+    void updateMaxAmpduSize (int value);
 
   public:
-    void installScenario(double simulationTime, double envStepTime, bool udp, int direction, int payloadSize) override;
+    void installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize) override;
 };
 
 class ScenarioFactory
 {
   private:
     int nWifim;
-    NodeContainer wifiStaNode;
-    NodeContainer wifiApNode;
-    Ipv4InterfaceContainer staNodeInterface;
-    Ipv4InterfaceContainer apNodeInterface;
+    int nAxm;
+    NodeContainer staNodes;
+    NodeContainer apNode;
+    Ipv4InterfaceContainer stasInterface;
+    Ipv4InterfaceContainer apInterface;
     int port;
-    int history_length;
-    std::string offeredLoad;
+    int historyLength;
+    std::string dataRate; // Used only with UDP traffic
 
   public:
-    ScenarioFactory(int nWifim, NodeContainer wifiStaNode, NodeContainer wifiApNode, Ipv4InterfaceContainer staNodeInterface, Ipv4InterfaceContainer apNodeInterface,
-        int port, std::string offeredLoad, int history_length)
+    ScenarioFactory(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface, 
+        int port, std::string dataRate, int historyLength)
     {
         this->nWifim = nWifim;
-        this->wifiStaNode = wifiStaNode;
-        this->wifiApNode = wifiApNode;
-        this->staNodeInterface = staNodeInterface;
-        this->apNodeInterface = apNodeInterface;
+        this->nAxm = nAxm;
+        this->staNodes = staNodes;
+        this->apNode = apNode;
+        this->stasInterface = stasInterface;
+        this->apInterface = apInterface;
         this->port = port;
-        this->offeredLoad = offeredLoad;
-        this->history_length = history_length;
+        this->dataRate = dataRate;
+        this->historyLength = historyLength;
     }
 
     Scenario *getScenario(std::string scenario)
@@ -104,13 +105,13 @@ class ScenarioFactory
         Scenario *wifiScenario;
         if (scenario == "basic")
         {
-            wifiScenario = new BasicScenario(this->nWifim, this->wifiStaNode, this->wifiApNode, this->staNodeInterface, this->apNodeInterface, this->port,
-                this->offeredLoad, this->history_length);
+            wifiScenario = new BasicScenario(this->nWifim, this->nAxm, this->staNodes, this->apNode, this->stasInterface, this->apInterface, this->port, this->dataRate,
+                this->historyLength);
         }
         else if (scenario == "convergence")
         {
-            wifiScenario = new ConvergenceScenario(this->nWifim, this->wifiStaNode, this->wifiApNode, this->staNodeInterface, this->apNodeInterface, this->port,
-                this->offeredLoad, this->history_length);
+            wifiScenario = new ConvergenceScenario(this->nWifim, this->nAxm, this->staNodes, this->apNode, this->stasInterface, this->apInterface, this->port,
+                this->dataRate, this->historyLength);
         }
         else
         {
@@ -121,105 +122,79 @@ class ScenarioFactory
     }
 };
 
-Scenario::Scenario(int nWifim, NodeContainer wifiStaNode, NodeContainer wifiApNode, Ipv4InterfaceContainer staNodeInterface, Ipv4InterfaceContainer apNodeInterface,
-    int port, std::string offeredLoad, int history_length)
+Scenario::Scenario(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface, int port,
+    std::string dataRate, int historyLength)
 {
     this->nWifim = nWifim;
-    this->wifiStaNode = wifiStaNode;
-    this->wifiApNode = wifiApNode;
-    this->staNodeInterface = staNodeInterface;
-    this->apNodeInterface = apNodeInterface;
+    this->nAxm = nAxm;
+    this->staNodes = staNodes;
+    this->apNode = apNode;
+    this->stasInterface = stasInterface;
+    this->apInterface = apInterface;
     this->port = port;
-    this->offeredLoad = offeredLoad;
-    this->history_length = history_length;
+    this->dataRate = dataRate;
+    this->historyLength = historyLength;
 }
 
 int Scenario::getActiveStationCount(double time)
 {
     int res=0;
-    for(uint i=0; i<start_times.size(); i++)
-        if(start_times.at(i)<time && time<end_times.at(i))
+    for(uint i=0; i<startTimes.size(); i++)
+        if(startTimes.at(i)<time && time<endTimes.at(i))
             res++;
     return res;
 }
 
 float Scenario::getStationUptime(int id, double time)
 {
-    return time - start_times.at(id);
+    return time - startTimes.at(id);
 }
 
-void Scenario::installUDPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, int port, int payloadSize, string offeredLoad, double startTime, double endTime)
+// UDP traffic: cli -> srv
+void Scenario::generateUdpTraffic (double startTime, double endTime, int payloadSize, Ptr<Node> srvNode, Ptr<Node> cliNode, int port)
 {
-    start_times.push_back(startTime);
-    end_times.push_back(endTime);
-    //static double d = 0;
+    startTimes.push_back(startTime);
+    endTimes.push_back(endTime);
 
-    double min = 0;
-    double max;
-    if (direction == 2) // UL+DL
-        max = (fromNode->GetId() == (uint32_t) nWifi) ? 5.0 : 0.0; // Random in DL direction
-    else // UL or DL
-        max = 1.0;
-    Ptr<UniformRandomVariable> fuzz = CreateObject<UniformRandomVariable>();
-    fuzz->SetAttribute("Min", DoubleValue(min));
-    fuzz->SetAttribute("Max", DoubleValue(max));
-
-    Ptr<Ipv4> ipv4 = toNode->GetObject<Ipv4>();           // Get Ipv4 instance of the node
+    Ptr<Ipv4> ipv4 = srvNode->GetObject<Ipv4>();          // Get Ipv4 instance of the node
     Ipv4Address addr = ipv4->GetAddress(1, 0).GetLocal(); // Get Ipv4InterfaceAddress of xth interface.
-
-    ApplicationContainer sourceApplications, sinkApplications;
 
     uint8_t tosValue = 0x70; //AC_BE
 
     InetSocketAddress sinkSocket(addr, port);
     sinkSocket.SetTos(tosValue);
     OnOffHelper onOffHelper("ns3::UdpSocketFactory", sinkSocket);
-    onOffHelper.SetConstantRate(DataRate(offeredLoad + "Mbps"), payloadSize);
-    sourceApplications.Add(onOffHelper.Install(fromNode));
-    //sourceApplications.StartWithJitter(Seconds(startTime), fuzz);
-    sourceApplications.Start(Seconds(startTime));
-    //d = d + 0.5;
-    sourceApplications.Stop(Seconds(endTime));
+    onOffHelper.SetConstantRate(DataRate(dataRate + "Mbps"), payloadSize);
+
+    clientsApp.Add (onOffHelper.Install(cliNode));
 
     UdpServerHelper sink(port);
-    sinkApplications = sink.Install(toNode);
-    sinkApplications.Start(Seconds(startTime));
-    sinkApplications.Stop(Seconds(endTime));
-
-    // Trace for throughput calculation -- TCP
-    Ptr<UdpServer> udpServer = DynamicCast<UdpServer>(sinkApplications.Get(0));
-    //std::string ss = std::to_string(fromNode->GetId());
-    //udpServer->TraceConnect("Rx", ss, MakeCallback(&udpPacketReceived));
-    udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&udpDataPacketReceived));
+    serversApp.Add (sink.Install(srvNode));
 }
 
-void Scenario::installTCPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, Ipv4Address rxAddr, int port, int payloadSize, double startTime, double endTime)
+// TCP traffic: cli -> srv
+void Scenario::generateTcpTraffic (double startTime, double endTime, int payloadSize, Ptr<Node> srvNode, Ptr<Node> cliNode, Ipv4Address address, int port)
 {
-    start_times.push_back(startTime);
-    end_times.push_back(endTime);
+        startTimes.push_back(startTime);
+        endTimes.push_back(endTime);
 
-    // Set payload size
-    Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (payloadSize));
-    // Set sender and receiver buffer size
-    Config::SetDefault ("ns3::TcpSocket::SndBufSize", UintegerValue (1 << 20));
-    Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (1 << 20));
-    // Set default initial congestion window
-    Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (10));
+        uint8_t tosValue = 0x70; //AC_BE
 
+        InetSocketAddress sinkSocket(Ipv4Address::GetAny (), port);
+        sinkSocket.SetTos(tosValue);
+        Address localAddress (sinkSocket);
+        PacketSinkHelper packetSinkHelper ("ns3::TcpSocketFactory", localAddress);
+        serversApp.Add (packetSinkHelper.Install (srvNode));
 
-    // Create a BulkSendApplication and install it on fromNode
-    BulkSendHelper source ("ns3::TcpSocketFactory", InetSocketAddress (rxAddr, port));
-    // Set the amount of data to send in bytes. Zero is unlimited.
-    source.SetAttribute ("MaxBytes", UintegerValue (0));
-    ApplicationContainer sourceApps = source.Install (fromNode);
-    sourceApps.Start (Seconds (startTime + 1));
-    sourceApps.Stop (Seconds (endTime));
+        Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (payloadSize));
+        OnOffHelper onoff ("ns3::TcpSocketFactory", Ipv4Address::GetAny ());
+        onoff.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1]"));
+        onoff.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
+        onoff.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
-    // Create a PacketSinkApplication and install it on toNode
-    PacketSinkHelper sink ("ns3::TcpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), port));
-    ApplicationContainer sinkApps = sink.Install (toNode);
-    sinkApps.Start (Seconds (startTime));
-    sinkApps.Stop (Seconds (endTime));
+        AddressValue remoteAddress (InetSocketAddress (address, port));
+        onoff.SetAttribute ("Remote", remoteAddress);
+        clientsApp.Add (onoff.Install (cliNode));
 }
 
 void Scenario::PopulateARPcache()
@@ -273,193 +248,253 @@ void Scenario::PopulateARPcache()
     }
 }
 
-void BasicScenario::installScenario(double simulationTime, double envStepTime, bool udp, int direction, int payloadSize)
+void BasicScenario::installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize)
 {
-    string offeredLoad = this->offeredLoad;
-    double startUdp = 0.0; // s
-    for (int i = 0; i < this->nWifim; ++i)
-    {
-/*
-        if (i < 10)
-        {
-            // TCP UL+DL (#STAs = 10) from 0 s to simulationTime/2 s
-            // UL
-            installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, 1460, 0.0, 30);
-            // DL
-            installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, 1460, 0.0, 30);
-        }
-        else
-        {
-            // TCP UL+DL (#STAs = 25) from simulationTime/2 s to simulationTime s
-            // UL
-            installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, 1460, 35,
-                simulationTime + 2 + envStepTime*history_length);
-            // DL
-            installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, 1460, 35,
-                simulationTime + 2 + envStepTime*history_length);
-        }
-*/
-        // Force mixed scenario
-        if (mixedScenario)
-        {
-            if (i < 5)
-            {
-                udp = true;
-                direction = 0;
-                payloadSize = 1472;  // bytes
-                offeredLoad = "1.5"; // Mbps
-                startUdp = 60.0;     // s
-            }
-            else
-            {
-                udp = false;
-                payloadSize = 1460; // bytes
-                direction = 2;
-            }
-        }
-        if (udp)
-        {
-            switch(direction)
-            {
-                case 0: // UL
-                    installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
-                        envStepTime*history_length);
-                    break;
-                case 1: // DL
-                    installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
-                        envStepTime*history_length);
-                    break;
-                case 2: // UL+DL
-                    installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
-                        envStepTime*history_length);
-                    installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, offeredLoad, startUdp, simulationTime + 2 +
-                        envStepTime*history_length);
-                    break;
-            }
-        }
-        else // TCP
-        {
-            switch(direction)
-            {
-                case 0: // UL
-                    installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize, 0.0,
-                        simulationTime + 2 + envStepTime*history_length);
-                    break;
-                case 1: // DL
-                    installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize, 0.0,
-                        simulationTime + 2 + envStepTime*history_length);
-                    break;
-                case 2: // UL+DL
-                    installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize, 0.0,
-                        simulationTime + 2 + envStepTime*history_length);
-                    installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize, 0.0,
-                        simulationTime + 2 + envStepTime*history_length);
-                    break;
-            }
-        }
+    // Header size (extracted from PCAP analysis)
+    headerSize = udp ? 114 : 138; // bytes
 
+    // Enable A-MPDU for STA 0
+    Ptr<WifiNetDevice> wifi_dev = DynamicCast<WifiNetDevice> (staNodes.Get(0)->GetDevice(0));
+    wifi_dev->GetMac ()->SetAttribute ("BE_MaxAmpduSize", UintegerValue (this->nAxm * (headerSize + payloadSize))); // if nAxm = 0, A-MPDU aggregation get disabled
+
+    // Install 'nAxm' flows in STA 0 (802.11ax devices)
+    for (int i = 0; i < this->nAxm; ++i)
+    {
+        if (uplink)
+        {
+            if (udp)
+            {
+                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(0), this->port++);
+            }
+            else // TCP
+            {
+                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(0),
+                    this->apInterface.GetAddress(0), this->port++); // Receptor's address
+            }
+        }
+        else // Downlink
+        {
+            if (udp)
+            {
+                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(0), this->apNode.Get(0), this->port++);
+            }
+            else // TCP
+            {
+                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(0), this->apNode.Get(0),
+                    this->stasInterface.GetAddress(i), this->port++); // Receptor's address
+            }
+        }
+    }
+    // Install 1 flow in the rest of STAs (legacy devices)
+    for (int i = 1; i < (this->nWifim - this->nAxm + 1); ++i)
+    {
+        if (uplink)
+        {
+            if (udp)
+            {
+                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(i), this->port++);
+            }
+            else // TCP
+            {
+                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(i),
+                    this->apInterface.GetAddress(0), this->port++); // Receptor's address
+            }
+        }
+        else // Downlink
+        {
+            if (udp)
+            {
+                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(i), this->apNode.Get(0), this->port++);
+            }
+            else // TCP
+            {
+                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(i), this->apNode.Get(0),
+                    this->stasInterface.GetAddress(i), this->port++); // Receptor's address
+            }
+        }
+    }
+    // Start all the flows
+    if (udp && !uplink) // UDP downlink
+    {
+        for (int i = 0; i < this->nWifim; ++i)
+        {
+            ApplicationContainer srv_aux = serversApp.Get (i); // First 'nAxm' flows of STA 0 and the rest of STAs > 0
+            ApplicationContainer cli_aux = clientsApp.Get (i);
+            srv_aux.Start (Seconds (i*0.1));
+            srv_aux.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
+            cli_aux.Start (Seconds (i*0.1));
+            cli_aux.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
+        }
+    }
+    else // UDP uplink, TCP uplink or TCP downlink
+    {
+        double min = 0.0;
+        double max = uplink ? 0.0 : 1.0;
+        Ptr<UniformRandomVariable> fuzz = CreateObject<UniformRandomVariable>();
+        fuzz->SetAttribute("Min", DoubleValue(min));
+        fuzz->SetAttribute("Max", DoubleValue(max));
+        serversApp.Start (Seconds (0.0));
+        serversApp.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
+        clientsApp.StartWithJitter (Seconds (max), fuzz);
+        clientsApp.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
     }
 }
 
-void ConvergenceScenario::installScenario(double simulationTime, double envStepTime, bool udp, int direction, int payloadSize)
+void ConvergenceScenario::updateMaxAmpduSize (int value)
+{
+    Ptr<WifiNetDevice> wifi_dev = DynamicCast<WifiNetDevice> (this->staNodes.Get(0)->GetDevice(0));
+    wifi_dev->GetMac ()->SetAttribute ("BE_MaxAmpduSize", UintegerValue (value));
+}
+
+void ConvergenceScenario::installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize)
 {
     float delta = simulationTime/(this->nWifim-4);
-    float delay = history_length*envStepTime;
+    float delay = historyLength*envStepTime;
+
+    double min = 0.0;
+    double max = uplink ? 0.0 : 1.0;
+    Ptr<UniformRandomVariable> fuzz = CreateObject<UniformRandomVariable>();
+    fuzz->SetAttribute("Min", DoubleValue(min));
+    fuzz->SetAttribute("Max", DoubleValue(max));
+
+    int n = 0; // First 802.11ax devices to consider
+    int j = 0, k = 0; // STA indexes
+    int start = 0, end = 0; // Start and end values of the second 'for'
+    int c = 1; // Counter for the rest of 802.11ax devices to consider
+    int value = 0; // Max A-MPDU size value
+
+    // Header size (extracted from PCAP analysis)
+    headerSize = udp ? 114 : 138; // bytes
+
     if (this->nWifim > 5)
     {
-        // Force mixed scenario
-        //udp = true;         // UDP
-        //payloadSize = 1472; // bytes
-        //direction = 1;      // DL
+        // Enable A-MPDU for STA 0
+        n = this->nAxm < 5 ? this->nAxm : 5; // Up to 5 flows at this time
+        Ptr<WifiNetDevice> wifi_dev = DynamicCast<WifiNetDevice> (staNodes.Get(0)->GetDevice(0));
+        wifi_dev->GetMac ()->SetAttribute ("BE_MaxAmpduSize", UintegerValue (n * (headerSize + payloadSize))); // if nAxm = 0, A-MPDU aggregation get disabled
+
+        // Install the first 5 flows, starting with all 802.11ax devices
         for (int i = 0; i < 5; ++i)
         {
-            if (udp)
+            // Calculate STA index
+            if (this->nAxm > 0)
             {
-                switch(direction)
+                j = i < this->nAxm ? 0 : i - this->nAxm + 1;
+            } else {
+                j = i;
+            }
+            if (uplink)
+            {
+                if (udp)
                 {
-                    case 0: // UL
-                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, 0.0 , simulationTime
-                            + 2 + delay);
-                        break;
-                    case 1: // DL
-                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, 0.0 , simulationTime
-                            + 2 + delay);
-                        break;
-                    case 2: // UL+DL
-                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, 0.0 , simulationTime
-                            + 2 + delay);
-                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, 0.0 , simulationTime
-                            + 2 + delay);
-                        break;
+                    generateUdpTraffic(0.0, simulationTime + 2 + delay, payloadSize, this->apNode.Get(0), this->staNodes.Get(j), this->port++);
+                }
+                else // TCP
+                {
+                    generateTcpTraffic(0.0, simulationTime + 2 + delay, payloadSize, this->apNode.Get(0), this->staNodes.Get(j),
+                        this->apInterface.GetAddress(0), this->port++); // Receptor's address
                 }
             }
-            else // TCP
+            else // Downlink
             {
-                switch(direction)
+                if (udp)
                 {
-                    case 0: // UL
-                        installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize, 0.0,
-                            simulationTime + 2 + delay);
-                        break;
-                    case 1: // DL
-                        installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize, 0.0,
-                            simulationTime + 2 + delay);
-                        break;
-                    case 2: // UL+DL
-                        installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize, 0.0,
-                            simulationTime + 2 + delay);
-                        installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize, 0.0,
-                            simulationTime + 2 + delay);
-                        break;
+                    generateUdpTraffic(0.0, simulationTime + 2 + delay, payloadSize, this->staNodes.Get(j), this->apNode.Get(0), this->port++);
+                }
+                else // TCP
+                {
+                    generateTcpTraffic(0.0, simulationTime + 2 + delay, payloadSize, this->staNodes.Get(j), this->apNode.Get(0),
+                        this->stasInterface.GetAddress(j), this->port++); // Receptor's address
                 }
             }
         }
-        // Force mixed scenario
-        //udp = false;        // TCP
-        //payloadSize = 1460; // bytes
-        //direction = 2;      // UL+DL
+        // Start the first 5 flows
+        if (udp && !uplink) // UDP downlink
+        {
+            for (int i = 0; i < 5; ++i)
+            {
+                ApplicationContainer srv_aux = serversApp.Get (i);
+                ApplicationContainer cli_aux = clientsApp.Get (i);
+                srv_aux.Start (Seconds (i*0.1));
+                srv_aux.Stop (Seconds (simulationTime + 2 + delay));
+                cli_aux.Start (Seconds (i*0.1));
+                cli_aux.Stop (Seconds (simulationTime + 2 + delay));
+            }
+        }
+        else // UDP uplink, TCP uplink or TCP downlink
+        {
+            // Get first 5 apps
+            ApplicationContainer srv_aux, cli_aux;
+            for (int i = 0; i < 5; ++i)
+            {
+                srv_aux.Add (serversApp.Get (i));
+                cli_aux.Add (clientsApp.Get (i));
+            }
+            srv_aux.Start (Seconds (0.0));
+            srv_aux.Stop (Seconds (simulationTime + 2 + delay));
+            cli_aux.StartWithJitter (Seconds (max), fuzz);
+            cli_aux.Stop (Seconds (simulationTime + 2 + delay));
+        }
+        // Install the rest of the flows, starting with all 802.11ax devices
+        start = this->nAxm < 5 ? j + 1 : 5;
+        end = (this->nAxm > 0 && this->nAxm < 5) ? this->nWifim - this->nAxm + j : this->nWifim;
+        for (int i = start; i < end; ++i)
+        {
+            // Calculate STA index
+            if (this->nAxm >= 5)
+            {
+                k = i < this->nAxm ? 0 : i - this->nAxm + 1;
+            } else {
+                k = i;
+            }
+            // Update A-MPDU max for STA 0 in each step until all 802.11ax devices are in the network
+            if (this->nAxm > 5 && i < this->nAxm)
+            {
+                value = (5 + c) * (headerSize + payloadSize);
+                Simulator::Schedule(Seconds(delay + (i - start + 1) * delta), &ConvergenceScenario::updateMaxAmpduSize, this, value);
+                c++;
+            }
+            if (uplink)
+            {
+                if (udp)
+                {
+                    generateUdpTraffic(delay + (i - start + 1) * delta, simulationTime + 2 + delay, payloadSize, this->apNode.Get(0), this->staNodes.Get(k), this->port++);
+                }
+                else // TCP
+                {
+                    generateTcpTraffic(delay + (i - start + 1) * delta, simulationTime + 2 + delay, payloadSize, this->apNode.Get(0), this->staNodes.Get(k),
+                        this->apInterface.GetAddress(0), this->port++); // Receptor's address
+                }
+            }
+            else // Downlink
+            {
+            if (udp)
+                {
+                    generateUdpTraffic(delay + (i - start + 1) * delta, simulationTime + 2 + delay, payloadSize, this->staNodes.Get(k), this->apNode.Get(0), this->port++);
+                }
+                else // TCP
+                {
+                    generateTcpTraffic(delay + (i - start + 1) * delta, simulationTime + 2 + delay, payloadSize, this->staNodes.Get(k), this->apNode.Get(0),
+                        this->stasInterface.GetAddress(k), this->port++); // Receptor's address
+                }
+            }
+        }
+        // Start the rest of the flows
+        double delay_2 = 0.0;
         for (int i = 5; i < this->nWifim; ++i)
         {
-            if (udp)
+            ApplicationContainer srv_aux = serversApp.Get (i);
+            ApplicationContainer cli_aux = clientsApp.Get (i);
+            if (udp && !uplink) // UDP downlink
             {
-                switch(direction)
-                {
-                    case 0: // UL
-                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
-                            simulationTime + 2 + delay);
-                        break;
-                    case 1: // DL
-                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
-                            simulationTime + 2 + delay);
-                        break;
-                    case 2: // UL+DL
-                        installUDPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
-                            simulationTime + 2 + delay);
-                        installUDPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->port++, payloadSize, this->offeredLoad, delay + (i - 4) * delta,
-                            simulationTime + 2 + delay);
-                        break;
-                }
+                delay_2 = i*0.1;
+                max = 0;
+                fuzz->SetAttribute("Max", DoubleValue(max)); // Remove jitter
             }
-            else // TCP
-            {
-                switch(direction)
-                {
-                    case 0: // UL
-                        installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize,
-                            delay + (i - 4) * delta, simulationTime + 2 + delay);
-                        break;
-                    case 1: // DL
-                        installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize,
-                            delay + (i - 4) * delta, simulationTime + 2 + delay);
-                        break;
-                    case 2: // UL+DL
-                        installTCPTrafficGenerator(this->wifiStaNode.Get(i), this->wifiApNode.Get(0), this->apNodeInterface.GetAddress(0), this->port++, payloadSize,
-                            delay + (i - 4) * delta, simulationTime + 2 + delay);
-                        installTCPTrafficGenerator(this->wifiApNode.Get(0), this->wifiStaNode.Get(i), this->staNodeInterface.GetAddress(i), this->port++, payloadSize,
-                            delay + (i - 4) * delta, simulationTime + 2 + delay);
-                        break;
-                }
-            }
+            srv_aux.Start (Seconds (delay + (i - 4) * delta + delay_2));
+            srv_aux.Stop (Seconds (simulationTime + 2 + delay));
+            cli_aux.StartWithJitter (Seconds (delay + (i - 4) * delta + delay_2 + max), fuzz);
+            cli_aux.Stop (Seconds (simulationTime + 2 + delay));
         }
     }
     else

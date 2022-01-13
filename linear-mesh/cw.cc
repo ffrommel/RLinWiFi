@@ -5,6 +5,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/opengym-module.h"
+//#include "ns3/csma-module.h"
 #include "ns3/propagation-module.h"
 #include "ns3/flow-monitor-helper.h"
 #include "ns3/ipv4-flow-classifier.h"
@@ -13,8 +14,8 @@
 #include <fstream>
 #include <string>
 #include <math.h>
-#include <ctime>
-#include <iomanip>
+#include <ctime>   //timestampi
+#include <iomanip> // put_time
 #include <deque>
 #include <algorithm>
 #include <csignal>
@@ -25,76 +26,67 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("OpenGym");
 
-void installTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, int port, string offeredLoad, double startTime);
 void PopulateARPcache();
 void recordHistory();
 
-bool new_state = false;         // true: state = p_col + n, false: state = p_col
-bool dry_run = false;
-uint32_t CW = 0;
-uint32_t CW_dryRun = 161;       // CW value for dry_run
-double simulationTime = 10;     // seconds
-double envStepTime = 0.1;       // seconds
-double current_time = 0.0;      // seconds
-uint32_t history_length = 20;
-uint32_t stas_length = 1;
-uint32_t stas_window = 10;
-int stas_threshold = 5;         // pkts
-string type = "discrete";
+double envStepTime = 0.1;
+double simulationTime = 10; //seconds
+double current_time = 0.0;
 bool verbose = false;
 int end_delay = 0;
-bool non_zero_start = false;
-bool far_sta = false;
-double len = 9.8;               // meters
-double wid = 7.4;               // meters
+bool dry_run = false;
 
 Ptr<FlowMonitor> monitor;
 FlowMonitorHelper flowmon;
+
+uint32_t CW = 0; // CW for legacy devices
+uint32_t CW_ax = 0; // CW for 802.11ax devices
+uint32_t historyLength = 20;
+string type = "discrete";
+bool non_zero_start = false;
 Scenario *wifiScenario;
+
 deque<float> history;
-deque<uint32_t> eff_stas;
-int payloadSize = 0;
 
-int rxError = 0;
-int rxOk = 0;
+bool uplink;
+bool udp;
+int payloadSize;
+uint64_t g_rxPktNum = 0;
+uint64_t g_txPktNum = 0;
+double len = 9.8; //meters
+double wid = 7.4; //meters
 
-Ptr<ListPositionAllocator> getCoordinates (uint16_t numStas, bool far) {
-    double side = sqrt (len * wid / numStas); // Side of the square of each STA
-    uint16_t stasInLen = round (len / side); // Number of STAs in length
-    uint16_t stasInWid = round (wid / side); // Number of STAs in width
-    if (stasInLen * stasInWid < numStas)
-        stasInWid ++;
-    double sepInLen = len / stasInLen;
-    double sepInWid = wid / stasInWid;
-    double i = sepInLen / 2;
-    double j = sepInWid / 2;
-    uint16_t counter = 1;
-    uint16_t factor = 9;
-    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
-    positionAlloc->Add (Vector (len / 2, wid / 2, 2)); // AP coordinates
-    while (i < len) {
-        while (j < wid) {
-            if (counter <= numStas)
-                if (far && counter == numStas) // 'far' is enabled and last STA
-                {
-                    positionAlloc->Add (Vector (i + factor * sepInLen, j, 0)); // far STA coordinate
-                    NS_LOG_UNCOND("(" << i + factor * sepInLen << ", " << j  << ")");
-                }
-                else
-                {
-                    positionAlloc->Add (Vector (i, j, 0)); // STA k coordinates
-                    NS_LOG_UNCOND("(" << i << ", " <<j << ")");
-                }
-            j += sepInWid;
-            counter++;
+Ptr<ListPositionAllocator> getCoordinates (uint16_t numStas) {
+        double side = sqrt (len * wid / numStas); // Side of the square of each STA
+        uint16_t stasInLen = round (len / side); // Number of STAs in length
+        uint16_t stasInWid = round (wid / side); // Number of STAs in width
+        if (stasInLen * stasInWid < numStas) {
+                stasInWid ++;
         }
-        i += sepInLen;
-        j = sepInWid / 2;
-    }
-    return positionAlloc;
+        double sepInLen = len / stasInLen;
+        double sepInWid = wid / stasInWid;
+        double i = sepInLen / 2;
+        double j = sepInWid / 2;
+        uint16_t counter = 1;
+        Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
+        positionAlloc->Add (Vector (len / 2, wid / 2, 2)); // AP coordinates
+        while (i < len) {
+                while (j < wid) {
+                        if (counter <= numStas) {
+                                positionAlloc->Add (Vector (i, j, 0)); // STA k coordinates
+                        }
+                        j += sepInWid;
+                        counter++;
+                }
+                i += sepInLen;
+                j = sepInWid / 2;
+        }
+        return positionAlloc;
 }
 
-// Define observation space
+/*
+Define observation space
+*/
 Ptr<OpenGymSpace> MyGetObservationSpace(void)
 {
     current_time += envStepTime;
@@ -102,7 +94,7 @@ Ptr<OpenGymSpace> MyGetObservationSpace(void)
     float low = 0.0;
     float high = 10.0;
     std::vector<uint32_t> shape = {
-        history_length,
+        historyLength,
     };
     std::string dtype = TypeNameGet<float>();
     Ptr<OpenGymBoxSpace> space = CreateObject<OpenGymBoxSpace>(low, high, shape, dtype);
@@ -111,13 +103,15 @@ Ptr<OpenGymSpace> MyGetObservationSpace(void)
     return space;
 }
 
-// Define action space
+/*
+Define action space
+*/
 Ptr<OpenGymSpace> MyGetActionSpace(void)
 {
     float low = 0.0;
     float high = 10.0;
     std::vector<uint32_t> shape = {
-        1,
+        2,
     };
     std::string dtype = TypeNameGet<float>();
     Ptr<OpenGymBoxSpace> space = CreateObject<OpenGymBoxSpace>(low, high, shape, dtype);
@@ -126,8 +120,10 @@ Ptr<OpenGymSpace> MyGetActionSpace(void)
     return space;
 }
 
-// Define extra info.
-double jain_index(Address apAddr)
+/*
+Define extra info. Optional
+*/
+double jain_index(Address apAddress)
 {
     double flowThr;
     Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
@@ -137,24 +133,20 @@ double jain_index(Address apAddr)
     double denominator;
     double n=0;
     double station_id = 0;
+
     for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i)
     {
+
         Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
-        Address srcAddr = t.sourceAddress;
-        // Do not process TCP ACK flows
-        bool cond;
-        if (direction == 0) // UL
-            cond = srcAddr != apAddr;
-        else if (direction == 1) // DL
-            cond = srcAddr == apAddr;
-        else // UL+DL
-            // Calculate only for UL transmissions
-            cond = srcAddr != apAddr;
+        Address srcAddress = t.sourceAddress;
+        bool cond = uplink ? srcAddress != apAddress : srcAddress == apAddress; // Do not process TCP ACK flows
+
         if (cond)
         {
             flowThr = i->second.rxBytes;
             flowThr /= wifiScenario->getStationUptime(station_id, current_time);
-            if(flowThr>0){
+            if(flowThr > 0)
+            {
                 nominator += flowThr;
                 denominator += flowThr*flowThr;
                 n++;
@@ -169,26 +161,38 @@ double jain_index(Address apAddr)
 
 std::string MyGetExtraInfo(Address addr)
 {
+    // A static variable declared within a function scope will be created and initialized once for all non-recursive calls to that function.
+    // https://stackoverflow.com/questions/35926569/static-float-variable-only-stores-highest-value-assigned-need-it-to-store-most
     static float ticks = 0.0;
-    static float lastValueData = 0.0;
-    float thr = g_rxDataPktNum - lastValueData; // Received data packets for throughput
-    lastValueData = g_rxDataPktNum;
+    static float lastValue = 0.0;
+    float obs = g_rxPktNum - lastValue;
+    lastValue = g_rxPktNum;
     ticks += envStepTime;
 
-    float sentMbytes = thr * payloadSize * 8.0 / 1024 / 1024;
+    float sentMbytes = obs * payloadSize * 8.0 / 1024 / 1024;
 
     std::string myInfo = std::to_string(sentMbytes);
     myInfo = myInfo + "|" + to_string(CW) + "|";
+    myInfo = myInfo + to_string(CW_ax) + "|";
     myInfo = myInfo + to_string(wifiScenario->getActiveStationCount(ticks)) + "|";
     myInfo = myInfo + to_string(jain_index(addr));
 
     if (verbose)
         NS_LOG_UNCOND("MyGetExtraInfo: " << myInfo);
 
+    string filename("cw-values.csv");
+    fstream file;
+
+    file.open(filename, std::ios_base::app | std::ios_base::in);
+    if (file.is_open())
+        file << CW << "," << CW_ax << endl;
+
     return myInfo;
 }
 
-// Execute received actions
+/*
+Execute received actions
+*/
 bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
 {
     if (verbose)
@@ -197,17 +201,21 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
     Ptr<OpenGymBoxContainer<float>> box = DynamicCast<OpenGymBoxContainer<float>>(action);
     std::vector<float> actionVector = box->GetData();
 
+    // TODO: - 1 after pow not implemented (see paper)
     if (type == "discrete")
     {
-        CW = pow(2, 4+actionVector.at(0));
+        CW = pow(2, actionVector.at(0) + 4);
+        CW_ax = pow(2, actionVector.at(1) + 4);
     }
     else if (type == "continuous")
     {
-        CW = pow(2, actionVector.at(0) + 4)- 1; //add -1
+        CW = pow(2, actionVector.at(0) + 4); // TODO: Floor not implemented (see paper)
+        CW_ax = pow(2, actionVector.at(1) + 4);
     }
     else if (type == "direct_continuous")
     {
         CW = actionVector.at(0);
+        CW_ax = actionVector.at(1);
     }
     else
     {
@@ -215,21 +223,20 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
         exit(0);
     }
 
-    uint32_t min_cw = 15;
-    uint32_t max_cw = 1023;
+    uint32_t min_cw = 16;
+    uint32_t max_cw = 1024;
 
     CW = min(max_cw, max(CW, min_cw));
+    CW_ax = min(max_cw, max(CW_ax, min_cw));
 
     if(!dry_run){
+        // Set CW for legacy devices
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW));
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW));
-    } else {
-        CW = CW_dryRun;
+        // Set CW for 802.11ax devices (STA 0)
+        Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW_ax));
+        Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW_ax));
     }
-
-    if (outputFile[2].is_open())
-        outputFile[2] << CW << "," << actionVector.at(0) << endl;
-
     return true;
 }
 
@@ -240,10 +247,13 @@ float MyGetReward(void)
     static float last_reward = 0.0;
     ticks += envStepTime;
 
-    float res = g_rxDataPktNum - last_packets;
+    float res = g_rxPktNum - last_packets;
     float reward = res * payloadSize * 8.0 / 1024 / 1024 / (5 * 150 * envStepTime) * 10;
+    //NS_LOG_UNCOND("\n### thr: " << res * payloadSize * 8.0 / 1024 / 1024 / envStepTime);
+    //NS_LOG_UNCOND("### thr_max: " << 5 * 150 / 10);
+    //NS_LOG_UNCOND("### reward: " << reward);
 
-    last_packets = g_rxDataPktNum;
+    last_packets = g_rxPktNum;
 
     if (ticks <= 2 * envStepTime)
         return 0.0;
@@ -257,36 +267,28 @@ float MyGetReward(void)
     return last_reward;
 }
 
-// Collect observations
+/*
+Collect observations
+*/
 Ptr<OpenGymDataContainer> MyGetObservation()
 {
     recordHistory();
 
     std::vector<uint32_t> shape = {
-        history_length,
+        historyLength,
     };
     Ptr<OpenGymBoxContainer<float>> box = CreateObject<OpenGymBoxContainer<float>>(shape);
 
-    // Copy p_col values
     for (uint32_t i = 0; i < history.size(); i++)
     {
-        //NS_LOG_UNCOND("obs: " << history[i]);
         if (history[i] >= -100 && history[i] <= 100)
             box->AddValue(history[i]);
         else
             box->AddValue(0);
     }
-    // Fill with 0s until history_length
-    for (uint32_t i = history.size(); i < history_length; i++)
-        box->AddValue(0);
-    if (new_state)
+    for (uint32_t i = history.size(); i < historyLength; i++)
     {
-        // Copy effective stas numbers
-        for (uint32_t i = 0; i < eff_stas.size(); i++)
-            box->AddValue(eff_stas[i]);
-        // Fill with 0s until stas_length
-        for (uint32_t i = eff_stas.size(); i < stas_length; i++)
-            box->AddValue(0);
+        box->AddValue(0);
     }
     if (verbose)
         NS_LOG_UNCOND("MyGetObservation: " << box);
@@ -295,225 +297,168 @@ Ptr<OpenGymDataContainer> MyGetObservation()
 
 bool MyGetGameOver(void)
 {
+    // bool isGameOver = (ns3::Simulator::Now().GetSeconds() > simulationTime + end_delay + 1.0);
     return false;
 }
 
-void ScheduleNextStateRead(double envStepTime, Ptr<OpenGymInterface> openGymInterface)
+void ScheduleNextStateRead(int nWifi, double envStepTime, Ptr<OpenGymInterface> openGymInterface)
 {
-    Simulator::Schedule(Seconds(envStepTime), &ScheduleNextStateRead, envStepTime, openGymInterface);
+    int totalRx = 0;
+    for (int i=0 ; i < nWifi ; ++i)
+    {
+        if (udp)
+        {
+            int rx = DynamicCast<UdpServer> (serversApp.Get (i))->GetReceived (); // Number of received packets
+            if (verbose)
+            {
+                NS_LOG_UNCOND("Packets of STA " << i << ": " << rx);
+            }
+            totalRx += rx;
+        }
+        else
+        {
+            int rx = static_cast<int> (DynamicCast<PacketSink> (serversApp.Get (i))->GetTotalRx () / payloadSize); // Number of received packets
+            if (verbose)
+            {
+                NS_LOG_UNCOND("Packets of STA " << i << ": " << rx);
+            }
+            totalRx += rx;
+        }
+    }
+    g_rxPktNum = totalRx; // Update received packets
+    if (verbose)
+    {
+        NS_LOG_UNCOND("\nTotal transmitted packets:\t" << g_txPktNum);
+        NS_LOG_UNCOND("Total received packets:\t\t" << g_rxPktNum);
+    }
+
+    Simulator::Schedule(Seconds(envStepTime), &ScheduleNextStateRead, nWifi, envStepTime, openGymInterface);
     openGymInterface->NotifyCurrentState();
 }
 
 void recordHistory()
 {
-    static int last_ok = 0;
-    static int last_error = 0;
+    static uint32_t last_rx = 0;
+    static uint32_t last_tx = 0;
     static uint32_t calls = 0;
-    static uint32_t stas_win = stas_window;
-
     calls++;
 
-    float ok = rxOk - last_ok;
-    float error = rxError - last_error;
+    float received = g_rxPktNum - last_rx;
+    float sent = g_txPktNum - last_tx;
+    float errs = sent - received;
     float ratio;
-    uint32_t stas_counter = 0;
 
-    // p_col values
-    ratio = 2*error/(2*error+ok/2);
-    //NS_LOG_UNCOND("p_col = " << ratio);
-
+    ratio = errs / sent;
     history.push_front(ratio);
 
-    if (history.size() > history_length)
+    if (history.size() > historyLength)
     {
         history.pop_back();
     }
-    last_ok = rxOk;
-    last_error = rxError;
+    last_rx = g_rxPktNum;
+    last_tx = g_txPktNum;
 
-    if (new_state)
-    {
-        // effective stas numbers
-        stas_win--;
-        if (stas_win == 0)
-        {
-            for (uint32_t i = 0; i < effective_stas.size(); i++)
-            {
-                if (outputFile[3].is_open())
-                    outputFile[3] << i << "," << effective_stas[i] << endl;
-                if (effective_stas[i] >= stas_threshold)
-                    stas_counter++;
-                effective_stas[i] = 0; // reset
-            }
-            eff_stas.push_front(stas_counter);
-            if (eff_stas.size() > stas_length)
-            {
-                eff_stas.pop_back();
-            }
-            stas_win = stas_window;
-        }
-    }
-
-    if (calls < history_length && non_zero_start)
+    if (calls < historyLength && non_zero_start)
     {
         Simulator::Schedule(Seconds(envStepTime), &recordHistory);
     }
-    else if (calls == history_length && non_zero_start)
+    else if (calls == historyLength && non_zero_start)
     {
-        rxOk = 0;
-        rxError = 0;
-        last_ok = 0;
-        last_error = 0;
+        g_rxPktNum = 0;
+        g_txPktNum = 0;
+        last_rx = 0;
+        last_tx = 0;
     }
 }
 
-void phyRxOk(Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
+void packetSent(Ptr<const Packet> packet)
 {
-    //NS_LOG_UNCOND("RX OK");
-    rxOk++;
+    g_txPktNum++;
 }
 
-void phyRxError(Ptr<const Packet> packet, double snr)
+void set_phy(int nWifi, int nAx, int guardInterval, NodeContainer &staNodes, NodeContainer &apNode, YansWifiPhyHelper &phy)
 {
-    //NS_LOG_UNCOND("RX ERROR");
-    rxError++;
-}
-
-void packetSent(std::string context, Ptr< const Packet > packet)
-{
-    // Get id of transmitter node
-    std::string delimiter = "/";
-    size_t pos = 0;
-    std::string str_id;
-    int id = -1;
-    int counter = 0;
-    while ((pos = context.find(delimiter)) != std::string::npos) {
-        str_id = context.substr(0, pos);
-        context.erase(0, pos + delimiter.length());
-        if (counter == 2) // Reached node id
-            break;
-        counter++;
-    }
-    id = std::stoi(str_id);
-    effective_stas[id]++;
-}
-
-void tcpDataPacketReceived(Ptr<const Packet> packet, const Address &ad)
-{
-    g_rxDataPktNum++;
-}
-
-
-
-void set_phy(int nWifi, NodeContainer &wifiStaNode, NodeContainer &wifiApNode, YansWifiPhyHelper &phy)
-{
-    wifiStaNode.Create(nWifi);
-    wifiApNode.Create(1);
-
-    YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
-
-    // Propagation loss depending on distance between nodes
-    //channel.AddPropagationLoss ("ns3::FriisPropagationLossModel", "Frequency", DoubleValue (5.210e9), "MinLoss", DoubleValue (0.0));
-    //channel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
-
-    Ptr<YansWifiChannel> chan = channel.Create();
-
-    // Original propagation loss model
     Ptr<MatrixPropagationLossModel> lossModel = CreateObject<MatrixPropagationLossModel>();
     lossModel->SetDefaultLoss(50);
+
+    staNodes.Create(nWifi - nAx + 1);
+    apNode.Create(1);
+
+    YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
+    Ptr<YansWifiChannel> chan = channel.Create();
     chan->SetPropagationLossModel(lossModel);
     chan->SetPropagationDelayModel(CreateObject<ConstantSpeedPropagationDelayModel>());
 
     phy = YansWifiPhyHelper::Default();
     phy.SetChannel(chan);
+
+    // Set guard interval
+    phy.Set("GuardInterval", TimeValue(NanoSeconds(guardInterval)));
 }
 
-void set_nodes(int nWifi, int channelWidth, int rng, int32_t simSeed, NodeContainer wifiStaNode, NodeContainer wifiApNode, Ipv4InterfaceContainer &staNodeInterface,
-    Ipv4InterfaceContainer &apNodeInterface, YansWifiPhyHelper phy, WifiMacHelper mac, WifiHelper wifi, NetDeviceContainer &apDevice)
+void set_nodes(int nWifi, int nAx, int channelWidth, int rng, int32_t simSeed, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer &stasInterface,
+    Ipv4InterfaceContainer &apInterface, YansWifiPhyHelper phy, WifiMacHelper mac, WifiHelper wifi, NetDeviceContainer &apDevice, NetDeviceContainer &staDevice)
 {
-    //double apTxPowerStart = 50.0; // dbm
-    //double apTxPowerEnd = 50.0; // dbm
-    //double staTxPowerStart = 50.0; // dbm
-    //double staTxPowerEnd = 50.0; // dbm
-
-    Ssid ssid = Ssid("ns3-80211");
-
-    // Configure STAs tx power
-    //phy.Set("TxPowerStart", DoubleValue (staTxPowerStart));
-    //phy.Set("TxPowerEnd", DoubleValue (staTxPowerEnd));
+    Ssid ssid = Ssid("ns3-80211ax");
 
     mac.SetType("ns3::StaWifiMac",
                 "Ssid", SsidValue(ssid),
                 "ActiveProbing", BooleanValue(false),
-                "BE_MaxAmpduSize", UintegerValue(0));
+                "BE_MaxAmpduSize", UintegerValue(0)); // Disable A-MPDU aggregation for STAs
 
-    NetDeviceContainer staDevice;
-    staDevice = wifi.Install(phy, mac, wifiStaNode);
-
-    // Configure AP tx power
-    //phy.Set("TxPowerStart", DoubleValue (apTxPowerStart));
-    //phy.Set("TxPowerEnd", DoubleValue (apTxPowerEnd));
+    staDevice = wifi.Install(phy, mac, staNodes);
 
     mac.SetType("ns3::ApWifiMac",
                 "EnableBeaconJitter", BooleanValue(false),
-                "BeaconInterval", TimeValue(Seconds(10)),
-                "Ssid", SsidValue(ssid));
+                "Ssid", SsidValue(ssid),
+                "BE_MaxAmpduSize", UintegerValue(65535)); // Enable A-MPDU aggregation for AP (https://www.nsnam.org/doxygen/classns3_1_1_ap_wifi_mac.html)
 
-    apDevice = wifi.Install(phy, mac, wifiApNode);
+    apDevice = wifi.Install(phy, mac, apNode);
 
     // Set channel width
     Config::Set("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue(channelWidth));
 
-    // Set mobility
+    // Mobility
     MobilityHelper mobility;
+    mobility.SetPositionAllocator (getCoordinates(nWifi - nAx + 1));
+    mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+    mobility.Install (apNode);
+    mobility.Install (staNodes);
 
-    // Original distribution
-    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator>();
-    positionAlloc->Add(Vector(0.0, 0.0, 0.0));
-    positionAlloc->Add(Vector(1.0, 0.0, 0.0));
-    mobility.SetPositionAllocator(positionAlloc);
-
-    // STAs in grid (with and without far STA)
-    //mobility.SetPositionAllocator (getCoordinates(nWifi, far_sta));
-
-    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-
-    mobility.Install(wifiApNode);
-    mobility.Install(wifiStaNode);
-
-    // Set Internet stack
+    /* Internet stack*/
     InternetStackHelper stack;
-    stack.Install(wifiApNode);
-    stack.Install(wifiStaNode);
+    stack.Install(apNode);
+    stack.Install(staNodes);
 
-    // Random
+    //Random
     if(simSeed!=-1)
         RngSeedManager::SetSeed(simSeed);
     RngSeedManager::SetRun(rng);
 
     Ipv4AddressHelper address;
     address.SetBase("192.168.1.0", "255.255.255.0");
-
-    staNodeInterface = address.Assign(staDevice);
-    apNodeInterface = address.Assign(apDevice);
+    stasInterface = address.Assign(staDevice);
+    apInterface = address.Assign(apDevice);
 
     if (!dry_run)
     {
+        // Set CW for legacy devices
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW));
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW));
+        // Set CW for 802.11ax devices (STA 0)
+        Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW_ax));
+        Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW_ax));
     }
     else
     {
         NS_LOG_UNCOND("Default CW");
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw",
-            UintegerValue(CW_dryRun));
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw",
-            UintegerValue(CW_dryRun));
+        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(16));
+        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(1024));
     }
 }
 
-void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansWifiPhyHelper phy, NetDeviceContainer apDevice, int end_delay, Ptr<FlowMonitor> &monitor,
-    FlowMonitorHelper &flowmon, Address addr)
+void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansWifiPhyHelper phy, NetDeviceContainer apDevice, NetDeviceContainer staDevice,
+    int end_delay, Ptr<FlowMonitor> &monitor, FlowMonitorHelper &flowmon, int nWifi, Address addr)
 {
     monitor = flowmon.InstallAll();
     monitor->SetAttribute("StartTime", TimeValue(Seconds(warmup)));
@@ -521,7 +466,7 @@ void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansW
     if (tracing)
     {
         phy.SetPcapDataLinkType(WifiPhyHelper::DLT_IEEE802_11_RADIO);
-        phy.EnablePcap("pcap-" + std::to_string(std::time(0)), apDevice.Get(0));
+        phy.EnablePcap("cw-" + std::to_string(std::time(0)), apDevice.Get(0));
     }
 
     Ptr<OpenGymInterface> openGymInterface = CreateObject<OpenGymInterface>(openGymPort);
@@ -536,12 +481,12 @@ void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansW
     if (non_zero_start)
     {
         Simulator::Schedule(Seconds(1.0), &recordHistory);
-        Simulator::Schedule(Seconds(envStepTime * history_length + 1.0), &ScheduleNextStateRead, envStepTime, openGymInterface);
+        Simulator::Schedule(Seconds(envStepTime * historyLength + 1.0), &ScheduleNextStateRead, nWifi, envStepTime, openGymInterface);
     }
     else
-        Simulator::Schedule(Seconds(1.0), &ScheduleNextStateRead, envStepTime, openGymInterface);
+        Simulator::Schedule(Seconds(1.0), &ScheduleNextStateRead, nWifi, envStepTime, openGymInterface);
 
-    Simulator::Stop(Seconds(simulationTime + end_delay + 1.0 + envStepTime*(history_length+1)));
+    Simulator::Stop(Seconds(simulationTime + end_delay + 1.0 + envStepTime*(historyLength+1)));
 
     NS_LOG_UNCOND("Simulation started");
     Simulator::Run();
@@ -555,66 +500,68 @@ void signalHandler(int signum)
 
 int main(int argc, char *argv[])
 {
-    string scenario = "basic";
-    bool tracing = false;
+    int nWifi = 5;
+    int nAx = 2;
+    bool tracing = true;
     bool useRts = false;
-    int32_t simSeed = -1;
-    uint32_t openGymPort = 5555;
+    //int mcs = 11;
+    int channelWidth = 20;
+    int guardInterval = 800;
+    string dataRate = "150";
+    int port = 1025;
+    uplink = true;
+    udp = true;
+    string outputCsv = "cw.csv";
+    string scenario = "basic";
+
     int rng = 1;
     int warmup = 1;
 
-    int mcs = 11;
-    int channelWidth = 20;      // MHz
-    string offeredLoad = "150"; // Mbps
-    int port = 1025;
-
-    // Open and insert headers in log files
-    outputFile[0].open(filename[0].c_str(), std::ios_base::app); // TX
-    outputFile[1].open(filename[1].c_str(), std::ios_base::app); // RX
-    outputFile[2].open(filename[2].c_str(), std::ios_base::app); // CW values
-    outputFile[3].open(filename[3].c_str(), std::ios_base::app); // threshold for effective STAs
-    if (outputFile[0].is_open())
-        outputFile[0] << "STA_id,tx_pkts" << endl;
-    if (outputFile[1].is_open())
-        outputFile[1] << "STA_id,rx_pkts" << endl;
-    if (outputFile[2].is_open())
-        outputFile[2] << "CW,action" << endl;
-    if (outputFile[3].is_open())
-        outputFile[3] << "STA_id,threshold" << endl;
+    uint32_t openGymPort = 5555;
+    int32_t simSeed = -1;
 
     signal(SIGTERM, signalHandler);
 
     CommandLine cmd;
-    cmd.AddValue("newState", "Use state = p_col + n (true) or state = p_col (false)", new_state);
-    cmd.AddValue("udp", "Use UDP as transport protocol (true) or TCP (false)", udp);
-    cmd.AddValue("direction", "Transmission direction: 0: UL, 1: DL, 2: UL+DL", direction);
-    cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
-    cmd.AddValue("scenario", "Scenario for analysis: basic, convergence", scenario);
-    cmd.AddValue("mixedScenario", "Enable/Disable mixed traffic scenario", mixedScenario);
-    cmd.AddValue("dryRun", "Execute scenario with BEB and no agent interaction", dry_run);
-    cmd.AddValue("cw_dryRun", "Value of Contention Window for dryRun execution", CW_dryRun);
+    cmd.AddValue("openGymPort", "Specify port number. Default: 5555", openGymPort);
+    cmd.AddValue("CW", "Value of Contention Window for legacy devices", CW);
+    cmd.AddValue("CW_ax", "Value of Contention Window for 802.11ax devices", CW_ax);
+    cmd.AddValue("historyLength", "Length of history window", historyLength);
+    cmd.AddValue("nWifi", "Number of wifi 802.11ac STA devices", nWifi);
+    cmd.AddValue("nAx", "Number of OFDMA 802.11ax STA devices", nAx);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
     cmd.AddValue("tracing", "Enable pcap tracing", tracing);
+    cmd.AddValue("rng", "Number of RngRun", rng);
+    cmd.AddValue("uplink", "Uplink direction if 'true', downlink if 'false'", uplink);
+    cmd.AddValue("udp", "UDP traffic if 'true', TCP if 'false'", udp);
     cmd.AddValue("simTime", "Simulation time in seconds. Default: 10s", simulationTime);
     cmd.AddValue("envStepTime", "Step time in seconds. Default: 0.1s", envStepTime);
-    cmd.AddValue("historyLength", "Length of history window", history_length);
-    cmd.AddValue("stasWindow", "Length of eff_stas window", stas_window);
-    cmd.AddValue("stasThreshold", "Threshold to consider stas as active", stas_threshold);
     cmd.AddValue("agentType", "Type of agent actions: discrete, continuous", type);
-    cmd.AddValue("seed", "Random seed", simSeed);
-    cmd.AddValue("openGymPort", "Specify port number. Default: 5555", openGymPort);
-    cmd.AddValue("rng", "Number of RngRun", rng);
     cmd.AddValue("nonZeroStart", "Start only after history buffer is filled", non_zero_start);
+    cmd.AddValue("scenario", "Scenario for analysis: basic, convergence, reaction", scenario);
+    cmd.AddValue("dryRun", "Execute scenario with BEB and no agent interaction", dry_run);
+    cmd.AddValue("seed", "Random seed", simSeed);
 
     cmd.Parse(argc, argv);
 
+    if (nAx > nWifi)
+    {
+        NS_LOG_UNCOND("ERROR! 'nAx' has to be less or equal to 'nWifi'");
+        exit(1);
+    }
+
+    // Payload size = MTU - IPv4 header - (TCP or UDP) header
+    // Headers' values taken from: https://cs.fit.edu/~mmahoney/cse4232/tcpip.html
+    payloadSize = udp ? 1472 : 1460; // bytes
+
     NS_LOG_UNCOND("Ns3Env parameters:");
     NS_LOG_UNCOND("--nWifi: " << nWifi);
-    NS_LOG_UNCOND("--udp: " << BooleanValue(udp));
-    NS_LOG_UNCOND("--direction (0: UL, 1: DL, 2: UL+DL): " << direction);
+    NS_LOG_UNCOND("--nAx: " << nAx);
     NS_LOG_UNCOND("--simulationTime: " << simulationTime);
     NS_LOG_UNCOND("--openGymPort: " << openGymPort);
     NS_LOG_UNCOND("--envStepTime: " << envStepTime);
+    NS_LOG_UNCOND("--uplink: " << uplink);
+    NS_LOG_UNCOND("--udp: " << udp);
     NS_LOG_UNCOND("--seed: " << simSeed);
     NS_LOG_UNCOND("--agentType: " << type);
     NS_LOG_UNCOND("--scenario: " << scenario);
@@ -631,78 +578,90 @@ int main(int argc, char *argv[])
         Config::SetDefault("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue("0"));
     }
 
-    // Payload size = MTU - IPv4 header - (TCP or UDP) header
-    // Headers' values taken from: https://cs.fit.edu/~mmahoney/cse4232/tcpip.html
-    payloadSize = udp ? 1472 : 1460; // bytes
+    // Disable fragmentation
+    Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("2346")); // bytes (max 802.11 MAC frame)
 
-    NodeContainer wifiStaNode;
-    NodeContainer wifiApNode;
-    Ipv4InterfaceContainer staNodeInterface;
-    Ipv4InterfaceContainer apNodeInterface;
+    NodeContainer staNodes;
+    NodeContainer apNode;
+    Ipv4InterfaceContainer stasInterface;
+    Ipv4InterfaceContainer apInterface;
     YansWifiPhyHelper phy;
-    set_phy(nWifi, wifiStaNode, wifiApNode, phy);
+    set_phy(nWifi, nAx, guardInterval, staNodes, apNode, phy);
 
     WifiMacHelper mac;
     WifiHelper wifi;
 
-    std::ostringstream oss;
+    //802.11ax PHY
+    //wifi.SetStandard(WIFI_PHY_STANDARD_80211ax_5GHZ);
+    //std::ostringstream oss;
+    //oss << "HeMcs" << mcs;
+    //wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()),
+    //                             "ControlMode", StringValue(oss.str()));
 
-    // 802.11ax PHY
-    phy.Set("GuardInterval", TimeValue(NanoSeconds(800)));
-    wifi.SetStandard(WIFI_PHY_STANDARD_80211ax_5GHZ);
+    //802.11ac PHY
+    phy.Set ("ShortGuardEnabled", BooleanValue (0));
+    wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
+    wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+                                  "DataMode", StringValue ("VhtMcs8"),
+                                  "ControlMode", StringValue ("VhtMcs8"));
 
-    // Fixed MCS
-    oss << "HeMcs" << mcs;
-    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
-
-    // Variable MCS
-    //wifi.SetRemoteStationManager("ns3::IdealWifiManager");
-
-    // 802.11ac PHY
-    //phy.Set ("ShortGuardEnabled", BooleanValue(true));
-    //wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
-    //oss << "VhtMcs" << mcs;
-    //wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
-
-    // 802.11n PHY
-    //phy.Set ("ShortGuardEnabled", BooleanValue(true));
+    //802.11n PHY
+    //phy.Set ("ShortGuardEnabled", BooleanValue (1));
     //wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
-    //oss << "HtMcs" << mcs;
-    //wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue(oss.str()), "ControlMode", StringValue(oss.str()));
+    //wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+    //                              "DataMode", StringValue ("HtMcs7"),
+    //                              "ControlMode", StringValue ("HtMcs7"));
 
     NetDeviceContainer apDevice;
-    set_nodes(nWifi, channelWidth, rng, simSeed, wifiStaNode, wifiApNode, staNodeInterface, apNodeInterface, phy, mac, wifi, apDevice);
+    NetDeviceContainer staDevice;
+    set_nodes(nWifi, nAx, channelWidth, rng, simSeed, staNodes, apNode, stasInterface, apInterface, phy, mac, wifi, apDevice, staDevice);
 
-    ScenarioFactory helper = ScenarioFactory(nWifi, wifiStaNode, wifiApNode, staNodeInterface, apNodeInterface, port, offeredLoad, history_length);
+    ScenarioFactory helper = ScenarioFactory(nWifi, nAx, staNodes, apNode, stasInterface, apInterface, port, dataRate, historyLength);
     wifiScenario = helper.getScenario(scenario);
 
+    // if (!dry_run)
+    // {
     if (non_zero_start)
-        end_delay = envStepTime * history_length + 1.0;
+        end_delay = envStepTime * historyLength + 1.0;
     else
         end_delay = 0.0;
+    // }
 
-    wifiScenario->installScenario(simulationTime + end_delay + envStepTime, envStepTime, udp, direction, payloadSize);
+    wifiScenario->installScenario(simulationTime + end_delay + envStepTime, envStepTime, uplink, udp, payloadSize);
 
-    // Traces for p_col calculation
-    Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/State/RxOk", MakeCallback(&phyRxOk));
-    Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/State/RxError", MakeCallback(&phyRxError));
-
-    // Trace for eff_stas
-    Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacTx", MakeCallback(&packetSent));
-
-    // Trace for throughput calculation -- TCP
-    Config::ConnectWithoutContext("/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx", MakeCallback(&tcpDataPacketReceived));
+    Config::ConnectWithoutContext("/NodeList/*/ApplicationList/*/$ns3::OnOffApplication/Tx", MakeCallback(&packetSent));
+    // Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxBegin", MakeCallback(&packetSent));
 
     wifiScenario->PopulateARPcache();
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
-    set_sim(tracing, dry_run, warmup, openGymPort, phy, apDevice, end_delay, monitor, flowmon, apNodeInterface.GetAddress(0));
+    set_sim(tracing, dry_run, warmup, openGymPort, phy, apDevice, staDevice, end_delay, monitor, flowmon, nWifi, apInterface.GetAddress(0));
 
-    float res =  g_rxDataPktNum * payloadSize * 8.0 / 1024 / 1024;
+    double flowThr;
+    float res =  g_rxPktNum * payloadSize * 8.0 / 1024 / 1024;
     printf("Sent mbytes: %.2f\tThroughput: %.3f", res, res/simulationTime);
+    ofstream myfile;
+    myfile.open(outputCsv, ios::app);
+
+    /* Contents of CSV output file
+    Timestamp, CW, CW_ax, nWifi, RngRun, SourceIP, DestinationIP, Throughput
+    */
+    Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
+    std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats();
+    for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i)
+    {
+        auto time = std::time(nullptr); //Get timestamp
+        auto tm = *std::localtime(&time);
+        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
+        flowThr = i->second.rxBytes * 8.0 / simulationTime / 1000 / 1000;
+        NS_LOG_UNCOND("Flow " << i->first << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\tThroughput: " << flowThr << " Mbps\tTime: " << i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds() << " s\tRx packets " << i->second.rxPackets);
+        myfile << std::put_time(&tm, "%Y-%m-%d %H:%M") << "," << CW << "," << CW_ax << "," << nWifi << "," << RngSeedManager::GetRun() << "," << t.sourceAddress << "," << t.destinationAddress << "," << flowThr;
+        myfile << std::endl;
+    }
+    myfile.close();
 
     Simulator::Destroy();
-    NS_LOG_UNCOND("Packets registered by handler: " << g_rxDataPktNum << " Packets" << endl);
+    NS_LOG_UNCOND("Packets registered by handler: " << g_rxPktNum << " Packets" << endl);
 
     return 0;
 }
