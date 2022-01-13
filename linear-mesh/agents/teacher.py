@@ -273,6 +273,7 @@ class Teacher:
                     "direction": parameters['direction'],
                     "nWifi": parameters['nWifi'],
                     "scenario": parameters['scenario'],
+                    "mixedScenario": parameters['mixedScenario'],
                     "dryRun": parameters['dryRun'],
                     "cw_dryRun": parameters['cw_dryRun'],
                     "tracing": parameters['tracing'],
@@ -284,13 +285,32 @@ class Teacher:
                     "agentType": parameters['agentType'],
                 }
                 if mixedTrain:
-                    if (i + 1 % 2) == 0: # Episode number even
-                        # Keep all elements values unchanged
+#                    if (i + 1) % 2 == 0: # Episode number even
+#                        # Keep all element values unchanged
+#                        pass
+#                    else: # Episode number odd
+#                        # Modify some element values
+#                        new_params['nWifi'] = 25
+
+                    # Get 1, ..., n from episode number to toggle settings
+                    j = i + 1 # First time runs with default values
+                    max_changes = 4 # 2 times in each scenario
+                    while j > max_changes - 1:
+                        if j - max_changes >= 0:
+                            j = j - max_changes
+
+                    if j == 0 or j == 1:
+                        # Keep all element values unchanged
                         pass
-                    else: # Episode number odd
-                        # Modify some elements values
-                        new_params['udp'] = not new_params['udp']
-                        new_params['direction'] = 1 if new_params['direction'] == 0 else 0
+                    #elif j == 1:
+                        # Modify some element values
+                    #    new_params['udp'] = False
+                    #    new_params['direction'] = 2
+                    else: # j == 2 or 3
+                        # Modify some other element values
+                        new_params['udp'] = True
+                        new_params['direction'] = 0
+
                 self.env = EnvWrapper(self.env.no_threads, **new_params)
 
             agent.reset()
