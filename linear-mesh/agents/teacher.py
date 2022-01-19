@@ -1,7 +1,7 @@
 import numpy as np
 import tqdm
 import subprocess
-from comet_ml import OfflineExperiment
+from comet_ml import Experiment
 from ns3gym import ns3env
 from ns3gym.start_sim import find_waf_path
 
@@ -25,7 +25,7 @@ class Logger:
                 with open(json_loc, "r") as f:
                     kwargs = json.load(f)
 
-                self.experiment = OfflineExperiment(**kwargs)
+                self.experiment = Experiment(**kwargs)
             else:
                 self.experiment = experiment
         self.sent_mb = 0
@@ -136,7 +136,9 @@ class Teacher:
             logger.begin_logging(1, steps_per_ep, agent.noise.sigma, agent.noise.theta, stepTime)
         except  AttributeError:
             logger.begin_logging(1, steps_per_ep, None, None, stepTime)
+
         add_noise = False
+        new_state = parameters['newState']
 
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
@@ -149,17 +151,33 @@ class Teacher:
         cumulative_reward = 0
         reward = 0
         sent_mb = 0
+        stas_length = 1
 
         obs = self.env.reset()
-        obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim)))
+        if (new_state):
+            p_col = obs[0][:-stas_length * 2]
+            eff_stas_legacy = obs[0][history_length:][0]
+            eff_stas_ax = obs[0][history_length + 1:][0]
+        else:
+            p_col = obs
+            eff_stas_legacy = -1
+            eff_stas_ax = -1
+        obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas_legacy, eff_stas_ax)
 
         with tqdm.trange(steps_per_ep) as t:
             for step in t:
                 self.debug = obs
                 self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                 next_obs, reward, done, info = self.env.step(self.actions)
-
-                next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                if (new_state):
+                    p_col = next_obs[0][:-stas_length * 2]
+                    eff_stas_legacy = next_obs[0][history_length:][0]
+                    eff_stas_ax = next_obs[0][history_length + 1:][0]
+                else:
+                    p_col = next_obs
+                    eff_stas_legacy = -1
+                    eff_stas_ax = -1
+                next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas_legacy, eff_stas_ax)
 
                 cumulative_reward += np.mean(reward)
 
@@ -193,6 +211,7 @@ class Teacher:
             logger.begin_logging(EPISODE_COUNT, steps_per_ep, None, None, stepTime)
 
         add_noise = True
+        new_state = parameters['newState']
 
         obs_dim = 1
         time_offset = history_length//obs_dim*stepTime
@@ -211,9 +230,18 @@ class Teacher:
             cumulative_reward = 0
             reward = 0
             sent_mb = 0
+            stas_length = 1
 
             obs = self.env.reset()
-            obs = self.preprocess(np.reshape(obs, (-1, len(self.env.envs), obs_dim))) # '-1' means unknown dimension, figured out by numpy
+            if (new_state):
+                p_col = obs[0][:-stas_length * 2]
+                eff_stas_legacy = obs[0][history_length:][0]
+                eff_stas_ax = obs[0][history_length + 1:][0]
+            else:
+                p_col = obs
+                eff_stas_legacy = -1
+                eff_stas_ax = -1
+            obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas_legacy, eff_stas_ax)
 
             self.last_actions = None
 
@@ -223,8 +251,15 @@ class Teacher:
 
                     self.actions = agent.act(np.array(obs, dtype=np.float32), add_noise)
                     next_obs, reward, done, info = self.env.step(self.actions)
-                    # reward = 1-np.reshape(np.mean(next_obs), reward.shape)
-                    next_obs = self.preprocess(np.reshape(next_obs, (-1, len(self.env.envs), obs_dim)))
+                    if (new_state):
+                        p_col = next_obs[0][:-stas_length * 2]
+                        eff_stas_legacy = next_obs[0][history_length:][0]
+                        eff_stas_ax = next_obs[0][history_length + 1:][0]
+                    else:
+                        p_col = next_obs
+                        eff_stas_legacy = -1
+                        eff_stas_ax = -1
+                    next_obs = self.preprocess(np.reshape(p_col, (-1, len(self.env.envs), obs_dim)), eff_stas_legacy, eff_stas_ax)
 
                     if self.last_actions is not None and step>(history_length/obs_dim) and i<EPISODE_COUNT-1:
                         agent.step(obs, self.actions, reward, next_obs, done, 2)
