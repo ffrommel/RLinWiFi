@@ -4,17 +4,28 @@
 #include <fstream>
 #include <string>
 #include <math.h>
-#include <ctime>   //timestampi
-#include <iomanip> // put_time
+#include <ctime>
+#include <iomanip>
 #include <deque>
 #include <algorithm>
 
 using namespace std;
 using namespace ns3;
 
-ApplicationContainer serversApp = ApplicationContainer();
-ApplicationContainer clientsApp = ApplicationContainer();
+int nWifi = 5;
+int nAx = 2;
+bool uplink = true;
+bool udp = true;
 int headerSize;
+
+uint64_t g_rxDataPktNum = 0;
+vector<int> effective_stas_legacy(51, 0);
+
+void udpDataPacketReceived(Ptr<const Packet> packet)
+{
+    //int id = std::stoi(str_id);
+    g_rxDataPktNum++;
+}
 
 class Scenario
 {
@@ -27,28 +38,18 @@ class Scenario
     Ipv4InterfaceContainer apInterface;
     int port;
     std::string dataRate; // Used only with UDP traffic
-    std::vector<double> startTimes;
-    std::vector<double> endTimes;
-    int historyLength;
+    std::vector<double> start_times;
+    std::vector<double> end_times;
+    int history_length;
 
-    void generateUdpTraffic (double startTime,
-                             double endTime,
-                             int payloadSize,
-                             ns3::Ptr<ns3::Node> srvNode,
-                             ns3::Ptr<ns3::Node> cliNode,
-                             int port);
-
-    void generateTcpTraffic (double startTime,
-                             double endTime,
-                             int payloadSize,
-                             ns3::Ptr<ns3::Node> srvNode,
-                             ns3::Ptr<ns3::Node> cliNode,
-                             ns3::Ipv4Address address,
-                             int port);
+    void installUDPTrafficGenerator(ns3::Ptr<ns3::Node> fromNode, ns3::Ptr<ns3::Node> toNode, int port, int payloadSize, std::string offeredLoad, double startTime,
+        double endTime);
+    void installTCPTrafficGenerator(ns3::Ptr<ns3::Node> fromNode, ns3::Ptr<ns3::Node> toNode, ns3::Ipv4Address rxAddr, int port, int payloadSize, double startTime,
+        double endTime);
 
   public:
     Scenario(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface, int port,
-        std::string dataRate, int historyLength);
+        std::string dataRate, int history_length);
     virtual void installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize) = 0;
     void PopulateARPcache();
     int getActiveStationCount(double time);
@@ -82,12 +83,12 @@ class ScenarioFactory
     Ipv4InterfaceContainer stasInterface;
     Ipv4InterfaceContainer apInterface;
     int port;
-    int historyLength;
+    int history_length;
     std::string dataRate; // Used only with UDP traffic
 
   public:
-    ScenarioFactory(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface, 
-        int port, std::string dataRate, int historyLength)
+    ScenarioFactory(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface,
+        int port, std::string dataRate, int history_length)
     {
         this->nWifim = nWifim;
         this->nAxm = nAxm;
@@ -97,7 +98,7 @@ class ScenarioFactory
         this->apInterface = apInterface;
         this->port = port;
         this->dataRate = dataRate;
-        this->historyLength = historyLength;
+        this->history_length = history_length;
     }
 
     Scenario *getScenario(std::string scenario)
@@ -106,12 +107,12 @@ class ScenarioFactory
         if (scenario == "basic")
         {
             wifiScenario = new BasicScenario(this->nWifim, this->nAxm, this->staNodes, this->apNode, this->stasInterface, this->apInterface, this->port, this->dataRate,
-                this->historyLength);
+                this->history_length);
         }
         else if (scenario == "convergence")
         {
             wifiScenario = new ConvergenceScenario(this->nWifim, this->nAxm, this->staNodes, this->apNode, this->stasInterface, this->apInterface, this->port,
-                this->dataRate, this->historyLength);
+                this->dataRate, this->history_length);
         }
         else
         {
@@ -123,7 +124,7 @@ class ScenarioFactory
 };
 
 Scenario::Scenario(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer apNode, Ipv4InterfaceContainer stasInterface, Ipv4InterfaceContainer apInterface, int port,
-    std::string dataRate, int historyLength)
+    std::string dataRate, int history_length)
 {
     this->nWifim = nWifim;
     this->nAxm = nAxm;
@@ -133,68 +134,91 @@ Scenario::Scenario(int nWifim, int nAxm, NodeContainer staNodes, NodeContainer a
     this->apInterface = apInterface;
     this->port = port;
     this->dataRate = dataRate;
-    this->historyLength = historyLength;
+    this->history_length = history_length;
 }
 
 int Scenario::getActiveStationCount(double time)
 {
     int res=0;
-    for(uint i=0; i<startTimes.size(); i++)
-        if(startTimes.at(i)<time && time<endTimes.at(i))
+    for(uint i=0; i<start_times.size(); i++)
+        if(start_times.at(i)<time && time<end_times.at(i))
             res++;
     return res;
 }
 
 float Scenario::getStationUptime(int id, double time)
 {
-    return time - startTimes.at(id);
+    return time - start_times.at(id);
 }
 
-// UDP traffic: cli -> srv
-void Scenario::generateUdpTraffic (double startTime, double endTime, int payloadSize, Ptr<Node> srvNode, Ptr<Node> cliNode, int port)
+void Scenario::installUDPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, int port, int payloadSize, string offeredLoad, double startTime, double endTime)
 {
-    startTimes.push_back(startTime);
-    endTimes.push_back(endTime);
+    start_times.push_back(startTime);
+    end_times.push_back(endTime);
+    //static double d = 0;
 
-    Ptr<Ipv4> ipv4 = srvNode->GetObject<Ipv4>();          // Get Ipv4 instance of the node
+    double min = 0;
+    double max = 1;
+    Ptr<UniformRandomVariable> fuzz = CreateObject<UniformRandomVariable>();
+    fuzz->SetAttribute("Min", DoubleValue(min));
+    fuzz->SetAttribute("Max", DoubleValue(max));
+
+    Ptr<Ipv4> ipv4 = toNode->GetObject<Ipv4>();           // Get Ipv4 instance of the node
     Ipv4Address addr = ipv4->GetAddress(1, 0).GetLocal(); // Get Ipv4InterfaceAddress of xth interface.
+
+    ApplicationContainer sourceApplications, sinkApplications;
 
     uint8_t tosValue = 0x70; //AC_BE
 
     InetSocketAddress sinkSocket(addr, port);
     sinkSocket.SetTos(tosValue);
     OnOffHelper onOffHelper("ns3::UdpSocketFactory", sinkSocket);
-    onOffHelper.SetConstantRate(DataRate(dataRate + "Mbps"), payloadSize);
-
-    clientsApp.Add (onOffHelper.Install(cliNode));
+    onOffHelper.SetConstantRate(DataRate(offeredLoad + "Mbps"), payloadSize);
+    sourceApplications.Add(onOffHelper.Install(fromNode));
+    //sourceApplications.StartWithJitter(Seconds(startTime), fuzz);
+    sourceApplications.Start(Seconds(startTime));
+    //d = d + 0.5;
+    sourceApplications.Stop(Seconds(endTime));
 
     UdpServerHelper sink(port);
-    serversApp.Add (sink.Install(srvNode));
+    sinkApplications = sink.Install(toNode);
+    sinkApplications.StartWithJitter(Seconds(startTime), fuzz);
+    sinkApplications.Stop(Seconds(endTime));
+
+    // Trace for throughput calculation -- TCP
+    Ptr<UdpServer> udpServer = DynamicCast<UdpServer>(sinkApplications.Get(0));
+    //std::string ss = std::to_string(fromNode->GetId());
+    //udpServer->TraceConnect("Rx", ss, MakeCallback(&udpPacketReceived));
+    udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&udpDataPacketReceived));
 }
 
-// TCP traffic: cli -> srv
-void Scenario::generateTcpTraffic (double startTime, double endTime, int payloadSize, Ptr<Node> srvNode, Ptr<Node> cliNode, Ipv4Address address, int port)
+void Scenario::installTCPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, Ipv4Address rxAddr, int port, int payloadSize, double startTime, double endTime)
 {
-        startTimes.push_back(startTime);
-        endTimes.push_back(endTime);
+    start_times.push_back(startTime);
+    end_times.push_back(endTime);
 
-        uint8_t tosValue = 0x70; //AC_BE
+    // Set payload size
+    Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (payloadSize));
+    // Set sender and receiver buffer size
+    Config::SetDefault ("ns3::TcpSocket::SndBufSize", UintegerValue (1 << 20));
+    Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (1 << 20));
+    // Set default initial congestion window
+    Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (10));
 
-        InetSocketAddress sinkSocket(Ipv4Address::GetAny (), port);
-        sinkSocket.SetTos(tosValue);
-        Address localAddress (sinkSocket);
-        PacketSinkHelper packetSinkHelper ("ns3::TcpSocketFactory", localAddress);
-        serversApp.Add (packetSinkHelper.Install (srvNode));
 
-        Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (payloadSize));
-        OnOffHelper onoff ("ns3::TcpSocketFactory", Ipv4Address::GetAny ());
-        onoff.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1]"));
-        onoff.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
-        onoff.SetAttribute ("PacketSize", UintegerValue (payloadSize));
+    // Create a BulkSendApplication and install it on fromNode
+    BulkSendHelper source ("ns3::TcpSocketFactory", InetSocketAddress (rxAddr, port));
+    // Set the amount of data to send in bytes. Zero is unlimited.
+    source.SetAttribute ("MaxBytes", UintegerValue (0));
+    ApplicationContainer sourceApps = source.Install (fromNode);
+    sourceApps.Start (Seconds (startTime + 1));
+    sourceApps.Stop (Seconds (endTime));
 
-        AddressValue remoteAddress (InetSocketAddress (address, port));
-        onoff.SetAttribute ("Remote", remoteAddress);
-        clientsApp.Add (onoff.Install (cliNode));
+    // Create a PacketSinkApplication and install it on toNode
+    PacketSinkHelper sink ("ns3::TcpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), port));
+    ApplicationContainer sinkApps = sink.Install (toNode);
+    sinkApps.Start (Seconds (startTime));
+    sinkApps.Stop (Seconds (endTime));
 }
 
 void Scenario::PopulateARPcache()
@@ -257,6 +281,10 @@ void BasicScenario::installScenario(double simulationTime, double envStepTime, b
     Ptr<WifiNetDevice> wifi_dev = DynamicCast<WifiNetDevice> (staNodes.Get(0)->GetDevice(0));
     wifi_dev->GetMac ()->SetAttribute ("BE_MaxAmpduSize", UintegerValue (this->nAxm * (headerSize + payloadSize))); // if nAxm = 0, A-MPDU aggregation get disabled
 
+    // Useful IPs to analyze PCAPs
+    NS_LOG_UNCOND("\nSTA 0 IP: " << this->stasInterface.GetAddress(0));
+    NS_LOG_UNCOND("\nAP IP: " << this->apInterface.GetAddress(0));
+
     // Install 'nAxm' flows in STA 0 (802.11ax devices)
     for (int i = 0; i < this->nAxm; ++i)
     {
@@ -264,25 +292,19 @@ void BasicScenario::installScenario(double simulationTime, double envStepTime, b
         {
             if (udp)
             {
-                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(0), this->port++);
+                installUDPTrafficGenerator(this->staNodes.Get(0), this->apNode.Get(0), this->port++, payloadSize, this->dataRate, 0.0, simulationTime + 2 +
+                    envStepTime*history_length);
             }
             else // TCP
             {
-                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(0),
-                    this->apInterface.GetAddress(0), this->port++); // Receptor's address
+                installTCPTrafficGenerator(this->staNodes.Get(0), this->apNode.Get(0), this->apInterface.GetAddress(0), this->port++, payloadSize, 0.0,
+                    simulationTime + 2 + envStepTime*history_length);
             }
         }
         else // Downlink
         {
-            if (udp)
-            {
-                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(0), this->apNode.Get(0), this->port++);
-            }
-            else // TCP
-            {
-                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(0), this->apNode.Get(0),
-                    this->stasInterface.GetAddress(i), this->port++); // Receptor's address
-            }
+            NS_LOG_UNCOND("EXIT! Coexistence ax - legacy not implemented in DL");
+            exit(0);
         }
     }
     // Install 1 flow in the rest of STAs (legacy devices)
@@ -292,51 +314,20 @@ void BasicScenario::installScenario(double simulationTime, double envStepTime, b
         {
             if (udp)
             {
-                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(i), this->port++);
+                installUDPTrafficGenerator(this->staNodes.Get(i), this->apNode.Get(0), this->port++, payloadSize, this->dataRate, 0.0, simulationTime + 2 +
+                    envStepTime*history_length);
             }
             else // TCP
             {
-                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->apNode.Get(0), this->staNodes.Get(i),
-                    this->apInterface.GetAddress(0), this->port++); // Receptor's address
+                installTCPTrafficGenerator(this->staNodes.Get(i), this->apNode.Get(0), this->apInterface.GetAddress(0), this->port++, payloadSize, 0.0,
+                    simulationTime + 2 + envStepTime*history_length);
             }
         }
         else // Downlink
         {
-            if (udp)
-            {
-                generateUdpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(i), this->apNode.Get(0), this->port++);
-            }
-            else // TCP
-            {
-                generateTcpTraffic(0.0, simulationTime + 2 + envStepTime*historyLength, payloadSize, this->staNodes.Get(i), this->apNode.Get(0),
-                    this->stasInterface.GetAddress(i), this->port++); // Receptor's address
-            }
+            NS_LOG_UNCOND("EXIT! Coexistence ax - legacy not implemented in DL");
+            exit(0);
         }
-    }
-    // Start all the flows
-    if (udp && !uplink) // UDP downlink
-    {
-        for (int i = 0; i < this->nWifim; ++i)
-        {
-            ApplicationContainer srv_aux = serversApp.Get (i); // First 'nAxm' flows of STA 0 and the rest of STAs > 0
-            ApplicationContainer cli_aux = clientsApp.Get (i);
-            srv_aux.Start (Seconds (i*0.1));
-            srv_aux.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
-            cli_aux.Start (Seconds (i*0.1));
-            cli_aux.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
-        }
-    }
-    else // UDP uplink, TCP uplink or TCP downlink
-    {
-        double min = 0.0;
-        double max = uplink ? 0.0 : 1.0;
-        Ptr<UniformRandomVariable> fuzz = CreateObject<UniformRandomVariable>();
-        fuzz->SetAttribute("Min", DoubleValue(min));
-        fuzz->SetAttribute("Max", DoubleValue(max));
-        serversApp.Start (Seconds (0.0));
-        serversApp.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
-        clientsApp.StartWithJitter (Seconds (max), fuzz);
-        clientsApp.Stop (Seconds (simulationTime + 2 + envStepTime*historyLength));
     }
 }
 
@@ -348,6 +339,9 @@ void ConvergenceScenario::updateMaxAmpduSize (int value)
 
 void ConvergenceScenario::installScenario(double simulationTime, double envStepTime, bool uplink, bool udp, int payloadSize)
 {
+    NS_LOG_UNCOND("EXIT! Coexistence ax - legacy not implemented for convergence scenario");
+    exit(0);
+/*
     float delta = simulationTime/(this->nWifim-4);
     float delay = historyLength*envStepTime;
 
@@ -502,5 +496,6 @@ void ConvergenceScenario::installScenario(double simulationTime, double envStepT
         std::cout << "Not enough Wi-Fi stations to support the convergence scenario." << endl;
         exit(0);
     }
+*/
 }
 #endif
