@@ -5,13 +5,6 @@ from collections import namedtuple, deque
 import random
 import copy
 
-# BUFFER_SIZE = int(2e3)  # replay buffer size
-# BATCH_SIZE = 64         # minibatch size
-# GAMMA = 0.99            # discount factor
-# TAU = 1e-3              # for soft update of target parameters
-# LR_ACTOR = 1e-5         # learning rate of the actor
-# LR_CRITIC = 4e-3        # learning rate of the critic
-# UPDATE_EVERY = 4
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -30,7 +23,7 @@ class Agent:
     TYPE = "continuous"
     NAME = "DDPG"
 
-    def __init__(self, state_size, action_size, config=Config(), random_seed=42, actor_layers=None, critic_layers=None):
+    def __init__(self, new_state, state_size, action_size, config=Config(), random_seed=42, actor_layers=None, critic_layers=None):
         print("CuDNN version:", torch.backends.cudnn.version())
         print("cuda:0" if torch.cuda.is_available() else "cpu")
         self.config = config
@@ -39,26 +32,18 @@ class Agent:
         self.noise = NormalNoise(action_size, random_seed, mu=0, sigma=4, theta=0.7)
 
         if actor_layers is None:
-            self.actor_local = Actor(
-                state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
-            self.actor_target = Actor(
-                state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
+            self.actor_local = Actor(new_state, state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
+            self.actor_target = Actor(new_state, state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
         else:
-            self.actor_local = Actor(
-                state_size, action_size, random_seed, config.BATCH_SIZE, *actor_layers).to(device)
-            self.actor_target = Actor(
-                state_size, action_size, random_seed, config.BATCH_SIZE, *actor_layers).to(device)
+            self.actor_local = Actor(new_state, state_size, action_size, random_seed, config.BATCH_SIZE, *actor_layers).to(device)
+            self.actor_target = Actor(new_state, state_size, action_size, random_seed, config.BATCH_SIZE, *actor_layers).to(device)
 
         if critic_layers is None:
-            self.critic_local = Critic(
-                state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
-            self.critic_target = Critic(
-                state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
+            self.critic_local = Critic(new_state, state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
+            self.critic_target = Critic(new_state, state_size, action_size, random_seed, config.BATCH_SIZE).to(device)
         else:
-            self.critic_local = Critic(
-                state_size, action_size, random_seed, config.BATCH_SIZE, *critic_layers).to(device)
-            self.critic_target = Critic(
-                state_size, action_size, random_seed, config.BATCH_SIZE, *critic_layers).to(device)
+            self.critic_local = Critic(new_state, state_size, action_size, random_seed, config.BATCH_SIZE, *critic_layers).to(device)
+            self.critic_target = Critic(new_state, state_size, action_size, random_seed, config.BATCH_SIZE, *critic_layers).to(device)
 
         self.critic_loss = 0
         self.actor_loss = 0
@@ -108,24 +93,15 @@ class Agent:
         Returns:
             ndarray[np.float32] -- Estimated best action
         """
-        # Convert numpy array to PyTorch tensor
         state = torch.from_numpy(state).float().to(device)
-        # Turn off during model evaluation
-        # ref: https://stackoverflow.com/questions/60018578/what-does-model-eval-do-in-pytorch
         self.actor_local.eval()
-        # Turn off gradients computation
         with torch.no_grad():
-            # Limit the values in an array
-            # Access the internal tensor with its value and create a numpy array from it
             action_values = np.clip(self.actor_local(state).cpu().data.numpy(), 0, 6)
-        # Turn on after model evaluation
         self.actor_local.train()
 
         if add_noise:
             for i in range(action_values.shape[0]):
                 action_values[i] += self.noise.sample()
-                # action_values[i] += (self.noise.sample()-0.8) / \
-                #     np.sqrt(self.episodes_passed)
 
         return np.clip(action_values, 0, 6)
 
@@ -232,8 +208,6 @@ class Agent:
         torch.save(self.critic_local.state_dict(), "scratch/linear-mesh/models/ddpg_critic.torch")
 
     def load(self):
-        #self.actor_local.load_state_dict(torch.load("scratch/linear-mesh/models/ddpg_actor_15_convergence.torch", map_location='cpu'))
-        #self.critic_local.load_state_dict(torch.load("scratch/linear-mesh/models/ddpg_critic_15_convergence.torch", map_location='cpu'))
         self.actor_local.load_state_dict(torch.load("scratch/linear-mesh/models/ddpg_actor.torch", map_location='cpu'))
         self.critic_local.load_state_dict(torch.load("scratch/linear-mesh/models/ddpg_critic.torch", map_location='cpu'))
 
