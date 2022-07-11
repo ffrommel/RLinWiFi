@@ -1,5 +1,5 @@
-# RLinWiFi
-Code for "Contention Window Optimization in IEEE 802.11ax Networks with Deep Reinforcement Learning" article published at WCNC 2021.
+# E-CCOD method
+Code for Master in Electrical Engineering Thesis "Aprendizaje Profundo por Refuerzo Aplicado al Control de Acceso en Redes IEEE 802.11" (Deep Reinforcement Learning Applied to Access Control in IEEE 802.11 Networks). Thesis presented to Facultad de Ingeniería, Universidad de la República, Uruguay on 06/30/2022. Link to the Thesis.
 
 ## Prerequisites
 In order to run this code you need python 3.6 (tensorflow dependency) with installed dependencies:
@@ -52,24 +52,4 @@ COMET INFO: Experiment is live on comet.ml https://www.comet.ml/XYZ/rl-in-wifi/3
 
 0
   3%|▎         | 182/6300 [00:16<09:22, 10.88it/s, curr_speed=0.00 Mbps, mb_sent=0.00 Mb]
-```
-
-## Reading results
-Currently, results can only be saved in a [CometML](https://www.comet.ml) workspace. 
-
-Example results for an experiment:
-![](https://i.imgur.com/g8hiAz9.png)
-
-## Referencing
-You can cite this code as 
-
-```
-@misc{wydmański2021contention,
-      title={Contention Window Optimization in IEEE 802.11ax Networks with Deep Reinforcement Learning}, 
-      author={Witold Wydmański and Szymon Szott},
-      year={2021},
-      eprint={2003.01492},
-      archivePrefix={arXiv},
-      primaryClass={cs.NI}
-}
 ```
