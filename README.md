@@ -8,7 +8,7 @@ conda env create -f environment.yaml
 ```
 After creating the conda env, **you need a working [ns3-gym](https://github.com/tkn-tub/ns3-gym) environment.** Ns3Gym python package is a part of a larger framework, so installing it on its own is, unfortunately, not enough.
 
-You also require a free ![CometML](https://www.comet.ml/signup) account for viewing the graphs. After creating it update the `comet_token.json` file with your credentials.
+You also require a free [CometML](https://www.comet.ml/signup) account for viewing the graphs. After creating it update the `comet_token.json` file with your credentials.
 
 ## Installation
 Clone the repo so that `linear-mesh` directory lands directly in ns3's `scratch`. 
