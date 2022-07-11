@@ -1,5 +1,5 @@
-# RLinWiFi
-Code for "Contention Window Optimization in IEEE 802.11ax Networks with Deep Reinforcement Learning" article published at WCNC 2021.
+# E-CCOD method
+Code for Master in Electrical Engineering Thesis "Aprendizaje Profundo por Refuerzo Aplicado al Control de Acceso en Redes IEEE 802.11" (Deep Reinforcement Learning Applied to Access Control in IEEE 802.11 Networks). Thesis presented to Facultad de Ingeniería, Universidad de la República, Uruguay on 06/30/2022.
 
 ## Prerequisites
 In order to run this code you need python 3.6 (tensorflow dependency) with installed dependencies:
