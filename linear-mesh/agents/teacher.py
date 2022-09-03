@@ -29,9 +29,15 @@ class Logger:
             else:
                 self.experiment = experiment
         self.sent_mb = 0
+        self.sent_mb_legacy = 0
+        self.sent_mb_ax = 0
         self.speed_window = deque(maxlen=100)
+        self.speed_window_legacy = deque(maxlen=100)
+        self.speed_window_ax = deque(maxlen=100)
         self.step_time = None
         self.current_speed = 0
+        self.current_speed_legacy = 0
+        self.current_speed_ax = 0
         if self.send_logs:
             if tags is not None:
                 self.experiment.add_tags(tags)
@@ -59,20 +65,35 @@ class Logger:
         self.speed_window.append(round_mb)
         self.current_speed = np.mean(np.asarray(self.speed_window)/self.step_time)
         self.sent_mb += round_mb
-        CW = info[1]
-        CW_ax = info[2]
-        self.stations = info[3]
-        fairness = info[4]
+
+        round_mb_legacy = info[1]
+        self.speed_window_legacy.append(round_mb_legacy)
+        self.current_speed_legacy = np.mean(np.asarray(self.speed_window_legacy)/self.step_time)
+        self.sent_mb_legacy += round_mb_legacy
+
+        round_mb_ax = info[2]
+        self.speed_window_ax.append(round_mb_ax)
+        self.current_speed_ax = np.mean(np.asarray(self.speed_window_ax)/self.step_time)
+        self.sent_mb_ax += round_mb_ax
+
+        CW = info[3]
+        CW_ax = info[4]
+        self.stations = info[5]
+        fairness = info[6]
 
         if self.send_logs:
             self.experiment.log_metric("Round reward", np.mean(reward), step=step)
             self.experiment.log_metric("Per-ep reward", np.mean(cumulative_reward), step=step)
-            self.experiment.log_metric("Megabytes sent", self.sent_mb, step=step)
-            self.experiment.log_metric("Round megabytes sent", round_mb, step=step)
+            #self.experiment.log_metric("Total megabytes sent", self.sent_mb, step=step)
+            #self.experiment.log_metric("Round total megabytes sent", round_mb, step=step)
+            #self.experiment.log_metric("Round legacy megabytes sent", round_mb_legacy, step=step)
+            #self.experiment.log_metric("Round ax megabytes sent", round_mb_ax, step=step)
             self.experiment.log_metric("Chosen CW for legacy devices", CW, step=step)
             self.experiment.log_metric("Chosen CW for 802.11ax devices", CW_ax, step=step)
             self.experiment.log_metric("Station count", self.stations, step=step)
-            self.experiment.log_metric("Current throughput", self.current_speed, step=step)
+            self.experiment.log_metric("Current total throughput", self.current_speed, step=step)
+            self.experiment.log_metric("Current legacy throughput", self.current_speed_legacy, step=step)
+            self.experiment.log_metric("Current ax throughput", self.current_speed_ax, step=step)
             self.experiment.log_metric("Fairness index", fairness, step=step)
 
             for i, obs in enumerate(observations):
