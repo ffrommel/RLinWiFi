@@ -11,21 +11,21 @@ from agents.teacher import Teacher, EnvWrapper
 from preprocessor import Preprocessor
 
 # TRAIN, EVAL OR DRYRUN EXECUTION
-runTrain = True
+runTrain = False
 runEval = False
-runDry = False
+runDry = True
 
 # SCENARIO CONFIGURATION
 new_state = True	# True: state = p_col + n; False: state = p_col
 udp = True		# True: UDP; False: TCP
 uplink = True		# True: UL; False: DL
-nWifi = 25
+nWifi = 20
 nAx = 10
 scenario = "basic"
-tracing = True
+tracing = False
 
 simTime = 60		# seconds
-stepTime = 0.01		# seconds
+stepTime = 1		# seconds
 history_length = 300
 stas_window = 10
 stas_threshold = 5	# pkts
