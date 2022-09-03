@@ -18,13 +18,24 @@ bool uplink = true;
 bool udp = true;
 int headerSize;
 
-uint64_t g_rxDataPktNum = 0;
-vector<int> effective_stas_legacy(51, 0);
+vector<int> effective_stas_legacy(17, 0);
+vector<int> rxPktNums(15, 0);
+vector<int> times(15, 1);
+vector<int> lastValues(15, 0);
+vector<int> lastValuesThr(15, 0);
+int extra_pkts = 0;
 
-void udpDataPacketReceived(Ptr<const Packet> packet)
+void udpPacketReceived(std::string str_id, Ptr<const Packet> packet)
 {
-    //int id = std::stoi(str_id);
-    g_rxDataPktNum++;
+    int id = std::stoi(str_id);
+    // id = 0		-- all ax STAs
+    // id = 1 - 15	-- all legacy STAs
+    if (id >= 0 && id <= 15) {
+        rxPktNums[id]++;
+    } else {
+        extra_pkts++;
+        NS_LOG_UNCOND("Wrong pkts = " << extra_pkts << " - STA id = " << id);
+    }
 }
 
 class Scenario
@@ -187,9 +198,9 @@ void Scenario::installUDPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node
 
     // Trace for throughput calculation -- TCP
     Ptr<UdpServer> udpServer = DynamicCast<UdpServer>(sinkApplications.Get(0));
-    //std::string ss = std::to_string(fromNode->GetId());
-    //udpServer->TraceConnect("Rx", ss, MakeCallback(&udpPacketReceived));
-    udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&udpDataPacketReceived));
+    std::string ss = std::to_string(fromNode->GetId());
+    udpServer->TraceConnect("Rx", ss, MakeCallback(&udpPacketReceived));
+    //udpServer->TraceConnectWithoutContext("Rx", MakeCallback(&udpPacketReceived));
 }
 
 void Scenario::installTCPTrafficGenerator(Ptr<ns3::Node> fromNode, Ptr<ns3::Node> toNode, Ipv4Address rxAddr, int port, int payloadSize, double startTime, double endTime)

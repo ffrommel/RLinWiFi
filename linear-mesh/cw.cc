@@ -54,8 +54,6 @@ deque<uint32_t> eff_stas_ax;
 deque<uint32_t> eff_stas_legacy;
 
 int payloadSize;
-uint64_t g_rxPktNum = 0;
-uint64_t g_txPktNum = 0;
 
 int rxError = 0;
 int rxOk = 0;
@@ -160,14 +158,27 @@ double jain_index(Address apAddress)
 std::string MyGetExtraInfo(Address addr)
 {
     static float ticks = 0.0;
-    static float lastValueData = 0.0;
-    float thr = g_rxDataPktNum - lastValueData; // Received data packets for throughput
-    lastValueData = g_rxDataPktNum;
+    float thr = 0.0;
+    float thr_legacy = 0.0;
+    float thr_ax = rxPktNums[0] - lastValuesThr[0];
+    lastValuesThr[0] = rxPktNums[0];
+
     ticks += envStepTime;
 
+    for (uint32_t i = 1; i < rxPktNums.size(); i++)
+    {
+        thr_legacy += rxPktNums[i] - lastValuesThr[i];
+        lastValuesThr[i] = rxPktNums[i];
+    }
+    thr = thr_legacy + thr_ax;
+
     float sentMbytes = thr * payloadSize * 8.0 / 1024 / 1024;
+    float sentMbytes_legacy = thr_legacy * payloadSize * 8.0 / 1024 / 1024;
+    float sentMbytes_ax = thr_ax * payloadSize * 8.0 / 1024 / 1024;
 
     std::string myInfo = std::to_string(sentMbytes);
+    myInfo = myInfo + "|" + std::to_string(sentMbytes_legacy);
+    myInfo = myInfo + "|" + std::to_string(sentMbytes_ax);
     myInfo = myInfo + "|" + to_string(CW) + "|";
     myInfo = myInfo + to_string(CW_ax) + "|";
     myInfo = myInfo + to_string(wifiScenario->getActiveStationCount(ticks)) + "|";
@@ -215,28 +226,48 @@ bool MyExecuteActions(Ptr<OpenGymDataContainer> action)
     CW = min(max_cw, max(CW, min_cw));
     CW_ax = min(max_cw, max(CW_ax, min_cw));
 
-    if(!dry_run){
+    // Hardcode CW values for dryrun execution
+    CW = 300;
+    CW_ax = 75;
+
+    //if(!dry_run){
         // Set CW for legacy devices
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW));
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW));
         // Set CW for 802.11ax devices (STA 0)
         Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW_ax));
         Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW_ax));
-    }
+    //}
     return true;
 }
 
 float MyGetReward(void)
 {
     static float ticks = 0.0;
-    static uint32_t last_packets = 0;
     static float last_reward = 0.0;
+    float reward = 0.0;
+
     ticks += envStepTime;
 
-    float res = g_rxDataPktNum - last_packets;
-    float reward = res * payloadSize * 8.0 / 1024 / 1024 / (5 * 150 * envStepTime) * 10;
-
-    last_packets = g_rxDataPktNum;
+    // old reward
+    //reward = (rxPktNums[0] - lastValues[0]) * payloadSize * 8.0 / 1024 / 1024 / envStepTime; // add thr for ax STAs
+    // new reward
+    if (rxPktNums[0] - lastValues[0] >= stas_threshold) // consider only effective STAs
+    {
+    	reward = nAx * log((rxPktNums[0] - lastValues[0]) * payloadSize * 8.0 / 1024 / 1024 / envStepTime / nAx); // add thr for ax STAs
+    }
+    lastValues[0] = rxPktNums[0];
+    for (uint32_t i = 1; i < rxPktNums.size(); i++) // add thr for legacy STAs
+    {
+        // old reward
+        //reward += (rxPktNums[i] - lastValues[i]) * payloadSize * 8.0 / 1024 / 1024 / envStepTime;
+        // new reward
+        if (rxPktNums[i] - lastValues[i] >= stas_threshold) // consider only effective STAs
+        {
+            reward += log((rxPktNums[i] - lastValues[i]) * payloadSize * 8.0 / 1024 / 1024 / envStepTime);
+        }
+        lastValues[i] = rxPktNums[i];
+    }
 
     if (ticks <= 2 * envStepTime)
         return 0.0;
@@ -244,8 +275,11 @@ float MyGetReward(void)
     if (verbose)
         NS_LOG_UNCOND("MyGetReward: " << reward);
 
-    if(reward>1.0f || reward<0.0f)
-        reward = last_reward;
+    // normalize reward
+    reward = reward / 150;
+    //if(reward>1.0f || reward<0.0f)
+    //    reward = last_reward;
+
     last_reward = reward;
     return last_reward;
 }
@@ -399,10 +433,12 @@ void packetSent(std::string context, Ptr< const Packet > packet)
         effective_stas_legacy[id]++;
 }
 
+/*
 void tcpDataPacketReceived(Ptr<const Packet> packet, const Address &ad)
 {
     g_rxDataPktNum++;
 }
+*/
 
 void set_phy(int nWifi, int nAx, NodeContainer &staNodes, NodeContainer &apNode, YansWifiPhyHelper &phy)
 {
@@ -471,21 +507,25 @@ void set_nodes(int nWifi, int nAx, int channelWidth, int rng, int32_t simSeed, N
     stasInterface = address.Assign(staDevice);
     apInterface = address.Assign(apDevice);
 
-    if (!dry_run)
-    {
+    // Hardcode CW values for dryrun execution
+    CW = 300;
+    CW_ax = 75;
+
+//    if (!dry_run)
+//    {
         // Set CW for legacy devices
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW));
         Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW));
         // Set CW for 802.11ax devices (STA 0)
         Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(CW_ax));
         Config::Set("/$ns3::NodeListPriv/NodeList/0/$ns3::Node/DeviceList/0/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(CW_ax));
-    }
-    else
-    {
-        NS_LOG_UNCOND("Default CW");
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(16));
-        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(1024));
-    }
+//    }
+//    else
+//    {
+//        NS_LOG_UNCOND("Default CW");
+//        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MinCw", UintegerValue(16));
+//        Config::Set("/$ns3::NodeListPriv/NodeList/*/$ns3::Node/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/BE_Txop/$ns3::QosTxop/MaxCw", UintegerValue(1024));
+//    }
 }
 
 void set_sim(bool tracing, bool dry_run, int warmup, uint32_t openGymPort, YansWifiPhyHelper phy, NetDeviceContainer apDevice, int end_delay, Ptr<FlowMonitor> &monitor, 
@@ -664,18 +704,23 @@ int main(int argc, char *argv[])
     Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacTx", MakeCallback(&packetSent));
 
     // Trace for throughput calculation -- TCP
-    Config::ConnectWithoutContext("/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx", MakeCallback(&tcpDataPacketReceived));
+    //Config::ConnectWithoutContext("/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx", MakeCallback(&tcpDataPacketReceived));
 
     wifiScenario->PopulateARPcache();
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
     set_sim(tracing, dry_run, warmup, openGymPort, phy, apDevice, end_delay, monitor, flowmon, apInterface.GetAddress(0));
 
-    float res =  g_rxPktNum * payloadSize * 8.0 / 1024 / 1024;
+    int pkts = 0;
+    for (uint32_t i = 0; i < rxPktNums.size(); i++)
+    {
+        pkts += rxPktNums[i];
+    }
+    float res =  pkts * payloadSize * 8.0 / 1024 / 1024;
     printf("Sent mbytes: %.2f\tThroughput: %.3f", res, res/simulationTime);
 
     Simulator::Destroy();
-    NS_LOG_UNCOND("Packets registered by handler: " << g_rxPktNum << " Packets" << endl);
+    NS_LOG_UNCOND("Packets registered by handler: " << pkts << " Packets" << endl);
 
     return 0;
 }
